@@ -50,11 +50,11 @@ describe("IpcServer", () => {
 
       // Wait, then pause
       await sleep(50);
-      simulateSimStarted(server, panicLocation);
+      await simulateSimStarted(server, panicLocation);
 
       // Wait while paused
       await sleep(100);
-      simulateSimFinished(server, panicLocation);
+      await simulateSimFinished(server, panicLocation);
 
       // Wait after resuming
       await sleep(50);
@@ -83,14 +83,14 @@ describe("IpcServer", () => {
       expect(elapsed1 - elapsed2).toBeGreaterThanOrEqual(30);
     });
 
-    it("should report paused state correctly", () => {
+    it("should report paused state correctly", async () => {
       server.startTracking(panicLocation);
       expect(server.isPaused(panicLocation)).toBe(false);
 
-      simulateSimStarted(server, panicLocation);
+      await simulateSimStarted(server, panicLocation);
       expect(server.isPaused(panicLocation)).toBe(true);
 
-      simulateSimFinished(server, panicLocation);
+      await simulateSimFinished(server, panicLocation);
       expect(server.isPaused(panicLocation)).toBe(false);
     });
 
@@ -110,15 +110,15 @@ describe("IpcServer", () => {
 
       // First cycle
       await sleep(30);
-      simulateSimStarted(server, panicLocation);
+      await simulateSimStarted(server, panicLocation);
       await sleep(50); // Paused
-      simulateSimFinished(server, panicLocation);
+      await simulateSimFinished(server, panicLocation);
 
       // Second cycle
       await sleep(30);
-      simulateSimStarted(server, panicLocation);
+      await simulateSimStarted(server, panicLocation);
       await sleep(50); // Paused
-      simulateSimFinished(server, panicLocation);
+      await simulateSimFinished(server, panicLocation);
 
       await sleep(30);
 
@@ -171,7 +171,7 @@ describe("IpcServer", () => {
     it("should handle sim/finished endpoint with URL-encoded panicLocation", async () => {
       await server.start();
       server.startTracking(panicLocation);
-      simulateSimStarted(server, panicLocation);
+      await simulateSimStarted(server, panicLocation);
 
       const response = await request(server.getApp()).post(
         `/sim/${urlEncoded}/finished`
@@ -197,7 +197,7 @@ describe("IpcServer", () => {
       const loc2 = "src/b.c:2";
       server.startTracking(loc1);
       server.startTracking(loc2);
-      simulateSimStarted(server, loc1);
+      await simulateSimStarted(server, loc1);
 
       const response = await request(server.getApp()).get("/debug/trackers");
 
@@ -234,24 +234,12 @@ function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-function simulateSimStarted(server: IpcServer, panicLocation: string): void {
-  // Directly manipulate the tracker to simulate the HTTP call
-  // This is needed because we test tracking logic separately from HTTP
-  const app = server.getApp();
-  // Access internal tracker via the route handler behavior
-  request(app).post(`/sim/${encodeURIComponent(panicLocation)}/started`).then(() => {});
-  // For synchronous testing, we directly call the internal method
-  // by triggering the pause behavior
-  const tracker = (server as unknown as { trackers: Map<string, { pausedAt?: Date; totalPausedMs: number }> }).trackers.get(panicLocation);
-  if (tracker && !tracker.pausedAt) {
-    tracker.pausedAt = new Date();
-  }
+async function simulateSimStarted(server: IpcServer, panicLocation: string): Promise<void> {
+  const urlEncoded = encodeURIComponent(panicLocation);
+  await request(server.getApp()).post(`/sim/${urlEncoded}/started`);
 }
 
-function simulateSimFinished(server: IpcServer, panicLocation: string): void {
-  const tracker = (server as unknown as { trackers: Map<string, { pausedAt?: Date; totalPausedMs: number }> }).trackers.get(panicLocation);
-  if (tracker && tracker.pausedAt) {
-    tracker.totalPausedMs += Date.now() - tracker.pausedAt.getTime();
-    delete tracker.pausedAt;
-  }
+async function simulateSimFinished(server: IpcServer, panicLocation: string): Promise<void> {
+  const urlEncoded = encodeURIComponent(panicLocation);
+  await request(server.getApp()).post(`/sim/${urlEncoded}/finished`);
 }

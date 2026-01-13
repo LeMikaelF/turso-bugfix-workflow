@@ -120,7 +120,7 @@ CREATE TABLE panic_fixes
     -- pending | repo_setup | reproducing | fixing | shipping | pr_open | needs_human_review
 
     panic_message  TEXT NOT NULL,       -- e.g., "assertion failed: pCur->isValid"
-    sql_statements TEXT NOT NULL,       -- JSON array of SQL strings
+    sql_statements TEXT NOT NULL,       -- Newline-separated SQL statements
 
     branch_name    TEXT,                -- e.g., "fix/panic-src-vdbe.c-1234"
     pr_url         TEXT,                -- Set after PR opened

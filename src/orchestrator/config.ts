@@ -71,8 +71,7 @@ export function loadConfigWithDefaults(
   overrides: Partial<Config> = {}
 ): Config {
   const defaults: Config = {
-    // TODO always use in-memory dbs for testing
-    tursoUrl: "file:local.db",
+    tursoUrl: ":memory:",
     tursoAuthToken: "",
     baseRepoPath: "/opt/turso-base",
     maxParallelPanics: 2,
