@@ -138,7 +138,7 @@ CREATE TABLE panic_fixes
 ```sql
 CREATE TABLE logs
 (
-    payload JSONB NOT NULL
+    payload TEXT NOT NULL
 );
 ```
 
@@ -146,7 +146,7 @@ Log payload structure:
 
 ```json
 {
-  "panic_id": "abc123",
+  "panic_location": "abc123",
   "phase": "reproducer",
   "level": "info",
   "message": "Simulator compiled successfully",
@@ -155,27 +155,15 @@ Log payload structure:
 }
 ```
 
-Query examples:
-
-```sql
--- Get all errors for a panic
-SELECT *
-FROM logs
-WHERE payload ->>'panic_id' = 'abc123'
-  AND payload->>'level' = 'error';
-
--- Get reproducer phase logs
-SELECT *
-FROM logs
-WHERE payload ->>'panic_id' = 'abc123'
-  AND payload->>'phase' = 'reproducer';
-```
-
 ---
 
 ## Components
 
 ### Orchestrator
+
+**Assumption:** Exactly one orchestrator process will run at any time. Multiple agents may run in parallel within
+AgentFS sessions. Under this assumption, no DB-based work-claiming/locking is required; the orchestrator can
+sequentially enqueue and dispatch work to agents based on `maxParallelPanics`.
 
 ```
 orchestrator/
@@ -428,7 +416,7 @@ Another agent (the Fixer) will use this file after you're done, so keep it well-
     - `failing_seed`
     - `why_simulator_missed`
     - `simulator_changes`
-7. **Commit your changes** with message: `reproducer: {panic_id}`
+7. **Commit your changes** with message: `reproducer: {panic_location}`
 
 ## Tools Available
 
@@ -473,7 +461,7 @@ Read the file `panic_context.md` in the repository root. It contains:
 7. **Update the JSON block** in `panic_context.md` with:
     - `bug_description`
     - `fix_description`
-8. **Commit your changes** with message: `fix: {panic_id}`
+8. **Commit your changes** with message: `fix: {panic_location}`
 
 ## Tools Available
 
@@ -504,6 +492,13 @@ make test  # Verify it passes
 ```
 
 ### Session Lifecycle
+
+**Cleanup on successful completion:** delete the AgentFS session to free storage.
+
+```bash
+# Delete the session database file
+rm .agentfs/${SESSION_NAME}.db
+```
 
 AgentFS sessions are created automatically when first used with `--session`. The session name can
 become a git branch name.
@@ -546,6 +541,9 @@ async function spawnAgentInSession(
 ---
 
 ## IPC: Timeout Tracking
+
+**Note:** Timers are best-effort. Process restarts do not preserve or reconcile elapsed time; on restart, timers
+reset. This is acceptable for this system.
 
 The orchestrator runs an HTTP server to track simulator runtime, which is excluded from agent timeouts.
 
@@ -703,7 +701,7 @@ async function abort(panicId: string, error: Error, phase: string): Promise<void
 
     // Log warning about retained session
     await log({
-        panic_id: panicId,
+        panic_location: panicId,
         phase,
         level: 'warn',
         message: `Session retained for debugging: fix-panic-${panicId}`,
@@ -771,7 +769,7 @@ async function processNextPanic(): Promise<void> {
 ### `panic_context.md`
 
 ```markdown
-# Panic Context: {panic_id}
+# Panic Context: {panic_location}
 
 ## Panic Info
 
@@ -800,7 +798,6 @@ SELECT * FROM t1 WHERE a = 1;
 
 ```json
 {
-  "panic_id": "abc123",
   "panic_location": "src/vdbe.c:1234",
   "panic_message": "assertion failed: pCur->isValid",
   "failing_seed": 42,
@@ -812,23 +809,21 @@ SELECT * FROM t1 WHERE a = 1;
 }
 ```
 
-```
-
 ### Required Fields for Ship
 
-| Field | Populated By |
-|-------|--------------|
-| `panic_id` | Repo Setup |
-| `panic_location` | Repo Setup |
-| `panic_message` | Repo Setup |
-| `failing_seed` | Reproducer |
+| Field                  | Populated By                    |
+|------------------------|---------------------------------|
+| `panic_location`       | Repo Setup                      |
+| `panic_message`        | Repo Setup                      |
+| `failing_seed`         | Reproducer                      |
 | `why_simulator_missed` | Reproducer (`describe-sim-fix`) |
-| `simulator_changes` | Reproducer (`describe-sim-fix`) |
-| `bug_description` | Fixer (`describe-fix`) |
-| `fix_description` | Fixer (`describe-fix`) |
-| `tcl_test_file` | Repo Setup |
+| `simulator_changes`    | Reproducer (`describe-sim-fix`) |
+| `bug_description`      | Fixer (`describe-fix`)          |
+| `fix_description`      | Fixer (`describe-fix`)          |
+| `tcl_test_file`        | Repo Setup                      |
 
-The orchestrator extracts the JSON block via regex and validates all fields before opening the PR.
+The orchestrator extracts the first JSON code block in the file via regex and validates all fields before opening the
+PR.
 
 ---
 
@@ -836,28 +831,28 @@ The orchestrator extracts the JSON block via regex and validates all fields befo
 
 ```typescript
 async function ship(panicId: string, sessionName: string): Promise<void> {
-  // 1. Parse context file
-  const contextPath = `panic_context.md`;
-  const content = await runInSession(sessionName, `cat ${contextPath}`);
-  const prData = extractJsonBlock(content.stdout);
+    // 1. Parse context file
+    const contextPath = `panic_context.md`;
+    const content = await runInSession(sessionName, `cat ${contextPath}`);
+    const prData = extractJsonBlock(content.stdout);
 
-  // 2. Validate required fields
-  const required = [
-    'panic_id', 'panic_location', 'panic_message', 'failing_seed',
-    'why_simulator_missed', 'simulator_changes', 'bug_description',
-    'fix_description', 'tcl_test_file'
-  ];
-  for (const field of required) {
-    if (!prData[field]) {
-      throw new Error(`Missing required field: ${field}`);
+    // 2. Validate required fields
+    const required = [
+        'panic_location', 'panic_message', 'failing_seed',
+        'why_simulator_missed', 'simulator_changes', 'bug_description',
+        'fix_description', 'tcl_test_file'
+    ];
+    for (const field of required) {
+        if (!prData[field]) {
+            throw new Error(`Missing required field: ${field}`);
+        }
     }
-  }
 
-  // 3. Delete context file
-  await runInSession(sessionName, `rm ${contextPath}`);
+    // 3. Delete context file
+    await runInSession(sessionName, `rm ${contextPath}`);
 
-  // 4. Squash commits
-  await runInSession(sessionName, `git reset --soft $(git merge-base HEAD main) && \
+    // 4. Squash commits
+    await runInSession(sessionName, `git reset --soft $(git merge-base HEAD main) && \
     git commit -m "fix: ${prData.panic_message}
 
 Location: ${prData.panic_location}
@@ -867,24 +862,24 @@ Fix: ${prData.fix_description}
 Failing seed: ${prData.failing_seed}
 Simulator: ${prData.why_simulator_missed}"`);
 
-  // 5. Push branch
-  await runInSession(sessionName, `git push -u origin fix/panic-${panicId}`);
+    // 5. Push branch
+    await runInSession(sessionName, `git push -u origin fix/panic-${panicId}`);
 
-  // 6. Open draft PR
-  const prUrl = await openPullRequest({
-    title: `fix: ${prData.panic_message}`,
-    body: formatPrBody(prData),
-    draft: true,
-    reviewer: config.prReviewer
-  });
+    // 6. Open draft PR
+    const prUrl = await openPullRequest({
+        title: `fix: ${prData.panic_message}`,
+        body: formatPrBody(prData),
+        draft: true,
+        reviewer: config.prReviewer
+    });
 
-  // 7. Update database
-  await db.execute({
-    sql: `UPDATE panic_fixes
+    // 7. Update database
+    await db.execute({
+        sql: `UPDATE panic_fixes
           SET status = 'pr_open', pr_url = ?, updated_at = CURRENT_TIMESTAMP
           WHERE id = ?`,
-    args: [prUrl, panicId]
-  });
+        args: [prUrl, panicId]
+    });
 }
 ```
 
