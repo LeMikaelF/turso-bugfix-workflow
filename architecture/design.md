@@ -93,7 +93,7 @@ All agents are Claude Code instances running in sandboxes, communicating through
 
 ## Workflow
 
-See workflow.mermaid.
+See [workflow file](./workflow.mermaid).
 
 ### Phase Summary
 
@@ -210,7 +210,7 @@ type PanicStatus =
 interface WorkflowState {
     panicId: string;
     status: PanicStatus;
-    sandboxName: string;
+    sessionName: string;
     startTime: Date;
     pausedTime: number;  // Accumulated sim runtime (excluded from timeout)
 }
@@ -220,16 +220,17 @@ interface WorkflowState {
 
 ```typescript
 async function spawnAgent(
-    sandboxName: string,
+    sessionName: string,
     promptFile: string,
     timeout: number
 ): Promise<AgentResult> {
+    const prompt = await readFile(promptFile, 'utf-8');
     const proc = spawn('agentfs', [
-        'run', sandboxName, '--',
+        'run', '--session', sessionName,
         'claude',
         '--dangerously-skip-permissions',
         '--print', 'text',
-        '--prompt', await readFile(promptFile, 'utf-8')
+        '--prompt', prompt
     ]);
 
     // Handle timeout (excluding paused time)
@@ -502,51 +503,43 @@ cargo build
 make test  # Verify it passes
 ```
 
-### Sandbox Lifecycle
+### Session Lifecycle
+
+AgentFS sessions are created automatically when first used with `--session`. The session name can
+become a git branch name.
 
 ```typescript
-// Create sandbox for a panic
-async function createSandbox(panicId: string): Promise<string> {
-    const sandboxName = `sandbox-${panicId}`;
-    await exec(`agentfs create ${sandboxName} --base /opt/turso-base`);
-    return sandboxName;
+// Get session name for a panic
+function getSessionName(panicId: string): string {
+    return `fix-panic-${panicId}`;
 }
 
-// Run command in sandbox
-async function runInSandbox(sandboxName: string, command: string): Promise<ExecResult> {
-    return exec(`agentfs run ${sandboxName} -- ${command}`);
-}
-
-// Delete sandbox
-async function deleteSandbox(sandboxName: string): Promise<void> {
-    await exec(`agentfs delete ${sandboxName}`);
+// Run command in session (session is created on first use)
+async function runInSession(sessionName: string, command: string): Promise<ExecResult> {
+    return exec(`agentfs run --session ${sessionName} ${command}`);
 }
 ```
 
-### Spawning Claude Code in Sandbox
+### Spawning Claude Code in Session
 
 ```typescript
-async function spawnAgentInSandbox(
-    sandboxName: string,
+async function spawnAgentInSession(
+    sessionName: string,
+    panicId: string,
     promptFile: string
 ): Promise<void> {
-    // Set up MCP server config in sandbox
-    await runInSandbox(sandboxName, `
-    claude mcp add panic-tools \\
-      --scope project \\
-      --transport stdio \\
-      "npx tsx /opt/tools/server.ts"
-  `);
+    // Set up MCP server config in session
+    await runInSession(sessionName, `claude mcp add panic-tools \
+      --scope project \
+      --transport stdio \
+      "npx tsx /opt/tools/server.ts"`);
 
     // Spawn Claude Code
     const prompt = await readFile(promptFile, 'utf-8');
-    await exec(`
-    PANIC_ID=${panicId} agentfs run ${sandboxName} -- \\
-      claude \\
-        --dangerously-skip-permissions \\
-        --print text \\
-        --prompt "${escapeForShell(prompt)}"
-  `);
+    await exec(`PANIC_ID=${panicId} agentfs run --session ${sessionName} claude \
+        --dangerously-skip-permissions \
+        --print text \
+        --prompt "${escapeForShell(prompt)}"`);
 }
 ```
 
@@ -708,12 +701,12 @@ async function abort(panicId: string, error: Error, phase: string): Promise<void
         ]
     });
 
-    // Log warning about retained sandbox
+    // Log warning about retained session
     await log({
         panic_id: panicId,
         phase,
         level: 'warn',
-        message: `Sandbox retained for debugging: sandbox-${panicId}`,
+        message: `Session retained for debugging: fix-panic-${panicId}`,
         timestamp: new Date().toISOString()
     });
 
@@ -842,12 +835,12 @@ The orchestrator extracts the JSON block via regex and validates all fields befo
 ## Ship Phase Details
 
 ```typescript
-async function ship(panicId: string, sandboxName: string): Promise<void> {
+async function ship(panicId: string, sessionName: string): Promise<void> {
   // 1. Parse context file
   const contextPath = `panic_context.md`;
-  const content = await runInSandbox(sandboxName, `cat ${contextPath}`);
+  const content = await runInSession(sessionName, `cat ${contextPath}`);
   const prData = extractJsonBlock(content.stdout);
-  
+
   // 2. Validate required fields
   const required = [
     'panic_id', 'panic_location', 'panic_message', 'failing_seed',
@@ -859,13 +852,12 @@ async function ship(panicId: string, sandboxName: string): Promise<void> {
       throw new Error(`Missing required field: ${field}`);
     }
   }
-  
+
   // 3. Delete context file
-  await runInSandbox(sandboxName, `rm ${contextPath}`);
-  
+  await runInSession(sessionName, `rm ${contextPath}`);
+
   // 4. Squash commits
-  await runInSandbox(sandboxName, `
-    git reset --soft $(git merge-base HEAD main) &&
+  await runInSession(sessionName, `git reset --soft $(git merge-base HEAD main) && \
     git commit -m "fix: ${prData.panic_message}
 
 Location: ${prData.panic_location}
@@ -873,12 +865,11 @@ Bug: ${prData.bug_description}
 Fix: ${prData.fix_description}
 
 Failing seed: ${prData.failing_seed}
-Simulator: ${prData.why_simulator_missed}"
-  `);
-  
+Simulator: ${prData.why_simulator_missed}"`);
+
   // 5. Push branch
-  await runInSandbox(sandboxName, `git push -u origin fix/panic-${panicId}`);
-  
+  await runInSession(sessionName, `git push -u origin fix/panic-${panicId}`);
+
   // 6. Open draft PR
   const prUrl = await openPullRequest({
     title: `fix: ${prData.panic_message}`,
@@ -886,17 +877,14 @@ Simulator: ${prData.why_simulator_missed}"
     draft: true,
     reviewer: config.prReviewer
   });
-  
+
   // 7. Update database
   await db.execute({
-    sql: `UPDATE panic_fixes 
+    sql: `UPDATE panic_fixes
           SET status = 'pr_open', pr_url = ?, updated_at = CURRENT_TIMESTAMP
           WHERE id = ?`,
     args: [prUrl, panicId]
   });
-  
-  // 8. Delete sandbox
-  await deleteSandbox(sandboxName);
 }
 ```
 
