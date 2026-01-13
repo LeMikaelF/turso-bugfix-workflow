@@ -1,20 +1,30 @@
 {
   "name": "panic-fix-workflow",
   "version": "1.0.0",
-  "description": "",
-  "main": "index.js",
+  "description": "Automated panic fix workflow for Turso",
+  "main": "dist/orchestrator/index.js",
   "scripts": {
+    "build": "tsc",
+    "start": "node dist/orchestrator/index.js",
+    "dev": "npx tsx src/orchestrator/index.ts",
+    "mcp": "npx tsx src/tools/server.ts",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "keywords": [],
   "author": "",
   "license": "ISC",
-  "type": "commonjs",
+  "type": "module",
+  "dependencies": {
+    "@tursodatabase/database": "^0.4.3",
+    "@modelcontextprotocol/sdk": "^1.0.0",
+    "express": "^4.21.0"
+  },
   "devDependencies": {
+    "@types/express": "^4.17.21",
     "@types/node": "^25.0.8",
     "eslint": "^9.39.2",
     "prettier": "^3.7.4",
-    "ts-node": "^10.9.2",
+    "tsx": "^4.19.0",
     "typescript": "^5.9.3"
   }
 }

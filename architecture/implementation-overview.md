@@ -44,7 +44,7 @@ panic-fix-workflow/
 
 ### Phase 1: Project Setup
 1. Update `package.json` with dependencies:
-   - `@libsql/client` - Turso database
+   - `@tursodatabase/database` - Turso database
    - `express` + `@types/express` - IPC HTTP server
    - `@modelcontextprotocol/sdk` - MCP server
 2. Update `tsconfig.json` for Node.js
