@@ -1,0 +1,81 @@
+# Dependencies
+node_modules/
+.pnp/
+.pnp.js
+
+# Build output
+dist/
+build/
+out/
+lib/
+*.tsbuildinfo
+
+# Logs
+logs/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Runtime data
+pids/
+*.pid
+*.seed
+*.pid.lock
+
+# Coverage
+coverage/
+.nyc_output/
+
+# Env files
+.env
+.env.*
+!.env.example
+
+# Cache
+.cache/
+.tmp/
+temp/
+*.tmp
+.eslintcache
+.stylelintcache
+.rpt2_cache/
+.rts2_cache_cjs/
+.rts2_cache_es/
+.rts2_cache_umd/
+
+# Tooling / package managers
+.yarn/
+.yarnrc.yml
+.yarn-cache/
+.yarn-unplugged/
+.yarn-build-state.yml
+.yarn-install-state.gz
+
+# Editors / OS
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+!.vscode/extensions.json
+!.vscode/settings.json
+!.vscode/tasks.json
+!.vscode/launch.json
+
+# TypeScript + tooling outputs
+*.tsbuildinfo
+
+# Testing
+jest-cache/
+playwright-report/
+test-results/
+
+# Optional: local certificates / keys (if you use them)
+*.pem
+*.key
+
+# Optional: Turbo / Nx / Next (keep if you use them)
+.turbo/
+.nx/
+.next/
