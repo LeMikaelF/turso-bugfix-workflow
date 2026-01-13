@@ -44,16 +44,16 @@ panic-fix-workflow/
 
 ### Phase 1: Project Setup
 1. Update `package.json` with dependencies:
-   - `@tursodatabase/database` - Turso database
+   - `@tursodatabase/database` - Turso database (NOT `@libsql/client`)
    - `express` + `@types/express` - IPC HTTP server
    - `@modelcontextprotocol/sdk` - MCP server
 2. Update `tsconfig.json` for Node.js
 
 ### Phase 2: Orchestrator - Core Infrastructure
-3. `src/orchestrator/config.ts` - configuration loading from env
-4. `src/orchestrator/database.ts` - Turso client wrapper with query methods
-5. `src/orchestrator/logger.ts` - structured logging to DB logs table
-6. `src/orchestrator/ipc-server.ts` - Express server on port 9100 for sim timeout tracking
+3. `src/orchestrator/config.ts` - configuration loading from properties file
+4. `src/orchestrator/database.ts` - Turso client wrapper with query methods (add tests, use in-memory db in tests)
+5. `src/orchestrator/logger.ts` - structured logging to DB logs table (add tests, use in-memory db in tests)
+6. `src/orchestrator/ipc-server.ts` - Express server on port 9100 for sim timeout tracking (add tests)
 
 ### Phase 3: Orchestrator - Sandbox & Agent Management
 7. `src/orchestrator/sandbox.ts` - AgentFS session create/delete
