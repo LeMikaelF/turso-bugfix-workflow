@@ -13,10 +13,8 @@ export type PanicStatus =
   | "needs_human_review";
 
 export interface PanicFix {
-  //TODO remove all traces of PanicFix.id from the code and from the design document.
-  id: string;
+  panic_location: string; // Primary key, e.g., "src/vdbe.c:1234"
   status: PanicStatus;
-  panic_location: string;
   panic_message: string;
   sql_statements: string; // One SQL statement per line
   branch_name: string | null;
@@ -64,9 +62,8 @@ export class DatabaseClient {
     const db = this.getDb();
     await db.exec(`
       CREATE TABLE IF NOT EXISTS panic_fixes (
-        id TEXT PRIMARY KEY,
+        panic_location TEXT PRIMARY KEY,
         status TEXT DEFAULT 'pending',
-        panic_location TEXT NOT NULL,
         panic_message TEXT NOT NULL,
         sql_statements TEXT NOT NULL,
         branch_name TEXT,
@@ -88,23 +85,22 @@ export class DatabaseClient {
   // Panic Fixes CRUD operations
 
   async createPanicFix(
-    id: string,
     panicLocation: string,
     panicMessage: string,
     sqlStatements: string[]
   ): Promise<void> {
     const db = this.getDb();
     const stmt = db.prepare(`
-      INSERT INTO panic_fixes (id, panic_location, panic_message, sql_statements)
-      VALUES (?, ?, ?, ?)
+      INSERT INTO panic_fixes (panic_location, panic_message, sql_statements)
+      VALUES (?, ?, ?)
     `);
-    await stmt.run(id, panicLocation, panicMessage, sqlStatements.join("\n"));
+    await stmt.run(panicLocation, panicMessage, sqlStatements.join("\n"));
   }
 
-  async getPanicFix(id: string): Promise<PanicFix | undefined> {
+  async getPanicFix(panicLocation: string): Promise<PanicFix | undefined> {
     const db = this.getDb();
-    const stmt = db.prepare(`SELECT * FROM panic_fixes WHERE id = ?`);
-    const row = await stmt.get(id);
+    const stmt = db.prepare(`SELECT * FROM panic_fixes WHERE panic_location = ?`);
+    const row = await stmt.get(panicLocation);
     return row as PanicFix | undefined;
   }
 
@@ -121,7 +117,7 @@ export class DatabaseClient {
   }
 
   async updatePanicStatus(
-    id: string,
+    panicLocation: string,
     status: PanicStatus,
     additionalFields?: {
       branch_name?: string;
@@ -149,35 +145,35 @@ export class DatabaseClient {
       params.push(JSON.stringify(additionalFields.workflow_error));
     }
 
-    sql += ` WHERE id = ?`;
-    params.push(id);
+    sql += ` WHERE panic_location = ?`;
+    params.push(panicLocation);
 
     const stmt = db.prepare(sql);
     await stmt.run(...params);
   }
 
-  async incrementRetryCount(id: string): Promise<void> {
+  async incrementRetryCount(panicLocation: string): Promise<void> {
     const db = this.getDb();
     const stmt = db.prepare(`
       UPDATE panic_fixes
       SET retry_count = retry_count + 1, updated_at = CURRENT_TIMESTAMP
-      WHERE id = ?
+      WHERE panic_location = ?
     `);
-    await stmt.run(id);
+    await stmt.run(panicLocation);
   }
 
-  async resetRetryCount(id: string): Promise<void> {
+  async resetRetryCount(panicLocation: string): Promise<void> {
     const db = this.getDb();
     const stmt = db.prepare(`
       UPDATE panic_fixes
       SET retry_count = 0, updated_at = CURRENT_TIMESTAMP
-      WHERE id = ?
+      WHERE panic_location = ?
     `);
-    await stmt.run(id);
+    await stmt.run(panicLocation);
   }
 
-  async markNeedsHumanReview(id: string, error: WorkflowError): Promise<void> {
-    await this.updatePanicStatus(id, "needs_human_review", {
+  async markNeedsHumanReview(panicLocation: string, error: WorkflowError): Promise<void> {
+    await this.updatePanicStatus(panicLocation, "needs_human_review", {
       workflow_error: error,
     });
   }

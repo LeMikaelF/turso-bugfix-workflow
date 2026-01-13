@@ -9,6 +9,7 @@ Claude Code agents orchestrated with AgentFS sandboxes for parallel, isolated ex
 - [Architecture](#architecture)
 - [Workflow](#workflow)
 - [Database Schema](#database-schema)
+    - [Slug Generation](#slug-generation)
 - [Components](#components)
     - [Orchestrator](#orchestrator)
     - [MCP Tools](#mcp-tools)
@@ -114,15 +115,14 @@ See [workflow file](./workflow.mermaid).
 ```sql
 CREATE TABLE panic_fixes
 (
-    id             TEXT PRIMARY KEY,
+    panic_location TEXT PRIMARY KEY,    -- e.g., "src/vdbe.c:1234" (unique identifier)
     status         TEXT      DEFAULT 'pending',
     -- pending | repo_setup | reproducing | fixing | shipping | pr_open | needs_human_review
 
-    panic_location TEXT NOT NULL,       -- e.g., "src/vdbe.c:1234"
     panic_message  TEXT NOT NULL,       -- e.g., "assertion failed: pCur->isValid"
     sql_statements TEXT NOT NULL,       -- JSON array of SQL strings
 
-    branch_name    TEXT,                -- e.g., "fix/panic-abc123"
+    branch_name    TEXT,                -- e.g., "fix/panic-src-vdbe.c-1234"
     pr_url         TEXT,                -- Set after PR opened
 
     retry_count    INTEGER   DEFAULT 0, -- Reset to 0 on each state transition
@@ -132,6 +132,10 @@ CREATE TABLE panic_fixes
     updated_at     TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 ```
+
+**Note on `panic_location` as primary key:** Since `panic_location` (e.g., `"src/vdbe.c:1234"`) contains
+characters unsuitable for URLs and file paths (`/`, `:`), we derive a **slug** for use in branch names,
+session names, and IPC endpoints. See [Slug Generation](#slug-generation) below.
 
 ### `logs` Table
 
@@ -146,7 +150,7 @@ Log payload structure:
 
 ```json
 {
-  "panic_location": "abc123",
+  "panic_location": "src/vdbe.c:1234",
   "phase": "reproducer",
   "level": "info",
   "message": "Simulator compiled successfully",
@@ -154,6 +158,44 @@ Log payload structure:
   "metadata": {}
 }
 ```
+
+### Slug Generation
+
+Since `panic_location` contains characters unsuitable for URLs and file paths (`/`, `:`), we derive a
+URL-safe **slug** for use in:
+
+- **Session names**: `fix-panic-{slug}`
+- **Branch names**: `fix/panic-{slug}`
+- **IPC endpoints**: URL-encoded for routing
+
+```typescript
+// encoding.ts
+
+/**
+ * Convert panic_location to a filesystem/git-safe slug.
+ * Example: "src/vdbe.c:1234" → "src-vdbe.c-1234"
+ */
+export function toSlug(panicLocation: string): string {
+    return panicLocation.replace(/[/:]/g, '-');
+}
+
+/**
+ * URL-encode panic_location for use in IPC endpoints.
+ * Example: "src/vdbe.c:1234" → "src%2Fvdbe.c%3A1234"
+ */
+export function toUrlSafe(panicLocation: string): string {
+    return encodeURIComponent(panicLocation);
+}
+```
+
+Usage:
+
+| Context        | Function                    | Example Output                      |
+|----------------|-----------------------------|-------------------------------------|
+| Session name   | `toSlug(panicLocation)`     | `fix-panic-src-vdbe.c-1234`         |
+| Branch name    | `toSlug(panicLocation)`     | `fix/panic-src-vdbe.c-1234`         |
+| IPC endpoint   | `toUrlSafe(panicLocation)`  | `/sim/src%2Fvdbe.c%3A1234/started`  |
+| DB queries     | Raw `panic_location`        | `WHERE panic_location = ?`          |
 
 ---
 
@@ -178,7 +220,8 @@ orchestrator/
 │   ├── pr.ts                 # GitHub PR creation
 │   ├── context-parser.ts     # Parse panic_context.md JSON block
 │   ├── logger.ts             # Structured logging to DB
-│   └── config.ts             # Configuration
+│   ├── config.ts             # Configuration
+│   └── encoding.ts              # toSlug(), toUrlSafe() helpers
 ├── package.json
 └── tsconfig.json
 ```
@@ -196,11 +239,11 @@ type PanicStatus =
     | 'needs_human_review';
 
 interface WorkflowState {
-    panicId: string;
+    panicLocation: string;  // Primary key, e.g., "src/vdbe.c:1234"
     status: PanicStatus;
-    sessionName: string;
+    sessionName: string;    // Derived: `fix-panic-${toSlug(panicLocation)}`
     startTime: Date;
-    pausedTime: number;  // Accumulated sim runtime (excluded from timeout)
+    pausedTime: number;     // Accumulated sim runtime (excluded from timeout)
 }
 ```
 
@@ -257,10 +300,13 @@ interface RunSimulatorResult {
 }
 
 async function runSimulator(params: RunSimulatorParams): Promise<RunSimulatorResult> {
-    const panicId = process.env.PANIC_ID;
+    // PANIC_LOCATION is set by orchestrator, e.g., "src/vdbe.c:1234"
+    const panicLocation = process.env.PANIC_LOCATION;
+    // URL-encode for safe use in IPC endpoints
+    const urlSafe = encodeURIComponent(panicLocation);
 
-    // Notify orchestrator: sim started
-    await fetch(`http://localhost:9100/sim/${panicId}/started`, {method: 'POST'});
+    // Notify orchestrator: sim started (URL-encoded panic_location in path)
+    await fetch(`http://localhost:9100/sim/${urlSafe}/started`, {method: 'POST'});
 
     try {
         const seed = params.seed ?? Math.floor(Math.random() * 1000000);
@@ -273,7 +319,7 @@ async function runSimulator(params: RunSimulatorParams): Promise<RunSimulatorRes
         };
     } finally {
         // Notify orchestrator: sim finished
-        await fetch(`http://localhost:9100/sim/${panicId}/finished`, {method: 'POST'});
+        await fetch(`http://localhost:9100/sim/${urlSafe}/finished`, {method: 'POST'});
     }
 }
 ```
@@ -504,9 +550,18 @@ AgentFS sessions are created automatically when first used with `--session`. The
 become a git branch name.
 
 ```typescript
-// Get session name for a panic
-function getSessionName(panicId: string): string {
-    return `fix-panic-${panicId}`;
+import { toSlug } from './utils';
+
+// Get session name for a panic (uses slug for filesystem safety)
+function getSessionName(panicLocation: string): string {
+    return `fix-panic-${toSlug(panicLocation)}`;
+    // e.g., "src/vdbe.c:1234" → "fix-panic-src-vdbe.c-1234"
+}
+
+// Get branch name for a panic (uses slug for git safety)
+function getBranchName(panicLocation: string): string {
+    return `fix/panic-${toSlug(panicLocation)}`;
+    // e.g., "src/vdbe.c:1234" → "fix/panic-src-vdbe.c-1234"
 }
 
 // Run command in session (session is created on first use)
@@ -520,7 +575,7 @@ async function runInSession(sessionName: string, command: string): Promise<ExecR
 ```typescript
 async function spawnAgentInSession(
     sessionName: string,
-    panicId: string,
+    panicLocation: string,
     promptFile: string
 ): Promise<void> {
     // Set up MCP server config in session
@@ -529,9 +584,9 @@ async function spawnAgentInSession(
       --transport stdio \
       "npx tsx /opt/tools/server.ts"`);
 
-    // Spawn Claude Code
+    // Spawn Claude Code with PANIC_LOCATION env var for IPC
     const prompt = await readFile(promptFile, 'utf-8');
-    await exec(`PANIC_ID=${panicId} agentfs run --session ${sessionName} claude \
+    await exec(`PANIC_LOCATION="${panicLocation}" agentfs run --session ${sessionName} claude \
         --dangerously-skip-permissions \
         --print text \
         --prompt "${escapeForShell(prompt)}"`);
@@ -559,20 +614,26 @@ interface TimeTracker {
     totalPausedMs: number;
 }
 
+// Map keyed by raw panic_location (e.g., "src/vdbe.c:1234")
 const trackers = new Map<string, TimeTracker>();
 
 const app = express();
 
-app.post('/sim/:panicId/started', (req, res) => {
-    const tracker = trackers.get(req.params.panicId);
+// URL param :panicLocation is URL-encoded (e.g., "src%2Fvdbe.c%3A1234")
+// Express automatically decodes it via req.params
+app.post('/sim/:panicLocation/started', (req, res) => {
+    // req.params.panicLocation is auto-decoded to "src/vdbe.c:1234"
+    const panicLocation = req.params.panicLocation;
+    const tracker = trackers.get(panicLocation);
     if (tracker && !tracker.pausedAt) {
         tracker.pausedAt = new Date();
     }
     res.sendStatus(200);
 });
 
-app.post('/sim/:panicId/finished', (req, res) => {
-    const tracker = trackers.get(req.params.panicId);
+app.post('/sim/:panicLocation/finished', (req, res) => {
+    const panicLocation = req.params.panicLocation;
+    const tracker = trackers.get(panicLocation);
     if (tracker && tracker.pausedAt) {
         tracker.totalPausedMs += Date.now() - tracker.pausedAt.getTime();
         tracker.pausedAt = undefined;
@@ -580,8 +641,8 @@ app.post('/sim/:panicId/finished', (req, res) => {
     res.sendStatus(200);
 });
 
-export function getElapsedMs(panicId: string): number {
-    const tracker = trackers.get(panicId);
+export function getElapsedMs(panicLocation: string): number {
+    const tracker = trackers.get(panicLocation);
     if (!tracker) return 0;
 
     const totalMs = Date.now() - tracker.startTime.getTime();
@@ -591,15 +652,15 @@ export function getElapsedMs(panicId: string): number {
     return totalMs - pausedMs;
 }
 
-export function startTracking(panicId: string): void {
-    trackers.set(panicId, {
+export function startTracking(panicLocation: string): void {
+    trackers.set(panicLocation, {
         startTime: new Date(),
         totalPausedMs: 0
     });
 }
 
-export function stopTracking(panicId: string): void {
-    trackers.delete(panicId);
+export function stopTracking(panicLocation: string): void {
+    trackers.delete(panicLocation);
 }
 
 app.listen(9100);
@@ -611,8 +672,8 @@ app.listen(9100);
 const REPRODUCER_TIMEOUT_MS = 60 * 60 * 1000;  // 60 minutes
 const FIXER_TIMEOUT_MS = 60 * 60 * 1000;       // 60 minutes
 
-function checkTimeout(panicId: string, phase: 'reproducer' | 'fixer'): boolean {
-    const elapsed = getElapsedMs(panicId);
+function checkTimeout(panicLocation: string, phase: 'reproducer' | 'fixer'): boolean {
+    const elapsed = getElapsedMs(panicLocation);
     const limit = phase === 'reproducer' ? REPRODUCER_TIMEOUT_MS : FIXER_TIMEOUT_MS;
     return elapsed >= limit;
 }
@@ -681,35 +742,35 @@ export function loadConfig(): Config {
 ### Abort Flow
 
 ```typescript
-async function abort(panicId: string, error: Error, phase: string): Promise<void> {
-    // Update database
+async function abort(panicLocation: string, error: Error, phase: string): Promise<void> {
+    // Update database (panic_location is the primary key)
     await db.execute({
-        sql: `UPDATE panic_fixes 
+        sql: `UPDATE panic_fixes
           SET status = 'needs_human_review',
               workflow_error = ?,
               updated_at = CURRENT_TIMESTAMP
-          WHERE id = ?`,
+          WHERE panic_location = ?`,
         args: [
             JSON.stringify({
                 phase,
                 error: error.message,
                 timestamp: new Date().toISOString()
             }),
-            panicId
+            panicLocation
         ]
     });
 
     // Log warning about retained session
     await log({
-        panic_location: panicId,
+        panic_location: panicLocation,
         phase,
         level: 'warn',
-        message: `Session retained for debugging: fix-panic-${panicId}`,
+        message: `Session retained for debugging: ${getSessionName(panicLocation)}`,
         timestamp: new Date().toISOString()
     });
 
     // Stop tracking
-    stopTracking(panicId);
+    stopTracking(panicLocation);
 }
 ```
 
@@ -725,6 +786,7 @@ On SIGINT, the orchestrator:
 
 ```typescript
 let shuttingDown = false;
+// Set of in-flight panic_locations (the primary key)
 const inFlightPanics = new Set<string>();
 
 process.on('SIGINT', async () => {
@@ -753,11 +815,11 @@ async function processNextPanic(): Promise<void> {
     const panic = await fetchNextPanic();
     if (!panic) return;
 
-    inFlightPanics.add(panic.id);
+    inFlightPanics.add(panic.panic_location);
     try {
         await runWorkflow(panic);
     } finally {
-        inFlightPanics.delete(panic.id);
+        inFlightPanics.delete(panic.panic_location);
     }
 }
 ```
@@ -830,7 +892,7 @@ PR.
 ## Ship Phase Details
 
 ```typescript
-async function ship(panicId: string, sessionName: string): Promise<void> {
+async function ship(panicLocation: string, sessionName: string): Promise<void> {
     // 1. Parse context file
     const contextPath = `panic_context.md`;
     const content = await runInSession(sessionName, `cat ${contextPath}`);
@@ -862,8 +924,9 @@ Fix: ${prData.fix_description}
 Failing seed: ${prData.failing_seed}
 Simulator: ${prData.why_simulator_missed}"`);
 
-    // 5. Push branch
-    await runInSession(sessionName, `git push -u origin fix/panic-${panicId}`);
+    // 5. Push branch (use slug for branch name)
+    const branchName = getBranchName(panicLocation);
+    await runInSession(sessionName, `git push -u origin ${branchName}`);
 
     // 6. Open draft PR
     const prUrl = await openPullRequest({
@@ -873,12 +936,12 @@ Simulator: ${prData.why_simulator_missed}"`);
         reviewer: config.prReviewer
     });
 
-    // 7. Update database
+    // 7. Update database (panic_location is the primary key)
     await db.execute({
         sql: `UPDATE panic_fixes
           SET status = 'pr_open', pr_url = ?, updated_at = CURRENT_TIMESTAMP
-          WHERE id = ?`,
-        args: [prUrl, panicId]
+          WHERE panic_location = ?`,
+        args: [prUrl, panicLocation]
     });
 }
 ```
@@ -901,7 +964,8 @@ turso-panic-fixer/
 │   │   ├── pr.ts
 │   │   ├── context-parser.ts
 │   │   ├── logger.ts
-│   │   └── config.ts
+│   │   ├── config.ts
+│   │   └── encoding.ts              # toSlug(), toUrlSafe()
 │   ├── package.json
 │   └── tsconfig.json
 ├── tools/

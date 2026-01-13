@@ -1,5 +1,8 @@
 // IPC HTTP server for simulator timeout tracking
 // Tracks time spent running the simulator to exclude from agent timeouts
+//
+// Note: The :panicLocation URL param is URL-encoded by clients (e.g., "src%2Fvdbe.c%3A1234")
+// Express automatically decodes it via req.params, so we get the raw panic_location.
 
 import express, { type Express, type Request, type Response } from "express";
 import type { Server } from "http";
@@ -14,6 +17,7 @@ export class IpcServer {
   private readonly app: Express;
   private readonly port: number;
   private server: Server | null = null;
+  // Map keyed by raw panic_location (e.g., "src/vdbe.c:1234")
   private trackers: Map<string, TimeTracker> = new Map();
 
   constructor(port: number = 9100) {
@@ -24,14 +28,15 @@ export class IpcServer {
 
   private setupRoutes(): void {
     // Simulator started - pause the timer
-    this.app.post("/sim/:panicId/started", (req: Request, res: Response) => {
-      const { panicId } = req.params;
-      if (!panicId) {
+    // URL param is URL-encoded, Express auto-decodes it
+    this.app.post("/sim/:panicLocation/started", (req: Request, res: Response) => {
+      const { panicLocation } = req.params;
+      if (!panicLocation) {
         res.sendStatus(400);
         return;
       }
 
-      const tracker = this.trackers.get(panicId);
+      const tracker = this.trackers.get(panicLocation);
       if (tracker && !tracker.pausedAt) {
         tracker.pausedAt = new Date();
       }
@@ -39,14 +44,14 @@ export class IpcServer {
     });
 
     // Simulator finished - resume the timer
-    this.app.post("/sim/:panicId/finished", (req: Request, res: Response) => {
-      const { panicId } = req.params;
-      if (!panicId) {
+    this.app.post("/sim/:panicLocation/finished", (req: Request, res: Response) => {
+      const { panicLocation } = req.params;
+      if (!panicLocation) {
         res.sendStatus(400);
         return;
       }
 
-      const tracker = this.trackers.get(panicId);
+      const tracker = this.trackers.get(panicLocation);
       if (tracker && tracker.pausedAt) {
         tracker.totalPausedMs += Date.now() - tracker.pausedAt.getTime();
         delete tracker.pausedAt;
@@ -67,11 +72,11 @@ export class IpcServer {
         isPaused: boolean;
       }> = {};
 
-      for (const [panicId] of this.trackers) {
-        trackerInfo[panicId] = {
-          elapsedMs: this.getElapsedMs(panicId),
-          totalPausedMs: this.trackers.get(panicId)!.totalPausedMs,
-          isPaused: this.trackers.get(panicId)!.pausedAt !== undefined,
+      for (const [panicLocation] of this.trackers) {
+        trackerInfo[panicLocation] = {
+          elapsedMs: this.getElapsedMs(panicLocation),
+          totalPausedMs: this.trackers.get(panicLocation)!.totalPausedMs,
+          isPaused: this.trackers.get(panicLocation)!.pausedAt !== undefined,
         };
       }
 
@@ -124,9 +129,10 @@ export class IpcServer {
 
   /**
    * Start tracking time for a panic
+   * @param panicLocation - The raw panic location (e.g., "src/vdbe.c:1234")
    */
-  startTracking(panicId: string): void {
-    this.trackers.set(panicId, {
+  startTracking(panicLocation: string): void {
+    this.trackers.set(panicLocation, {
       startTime: new Date(),
       totalPausedMs: 0,
     });
@@ -134,16 +140,18 @@ export class IpcServer {
 
   /**
    * Stop tracking time for a panic
+   * @param panicLocation - The raw panic location (e.g., "src/vdbe.c:1234")
    */
-  stopTracking(panicId: string): void {
-    this.trackers.delete(panicId);
+  stopTracking(panicLocation: string): void {
+    this.trackers.delete(panicLocation);
   }
 
   /**
    * Get elapsed time in milliseconds for a panic, excluding paused time
+   * @param panicLocation - The raw panic location (e.g., "src/vdbe.c:1234")
    */
-  getElapsedMs(panicId: string): number {
-    const tracker = this.trackers.get(panicId);
+  getElapsedMs(panicLocation: string): number {
+    const tracker = this.trackers.get(panicLocation);
     if (!tracker) {
       return 0;
     }
@@ -159,17 +167,19 @@ export class IpcServer {
 
   /**
    * Check if a panic is currently paused (simulator running)
+   * @param panicLocation - The raw panic location (e.g., "src/vdbe.c:1234")
    */
-  isPaused(panicId: string): boolean {
-    const tracker = this.trackers.get(panicId);
+  isPaused(panicLocation: string): boolean {
+    const tracker = this.trackers.get(panicLocation);
     return tracker?.pausedAt !== undefined;
   }
 
   /**
    * Check if tracking has timed out
+   * @param panicLocation - The raw panic location (e.g., "src/vdbe.c:1234")
    */
-  hasTimedOut(panicId: string, timeoutMs: number): boolean {
-    return this.getElapsedMs(panicId) >= timeoutMs;
+  hasTimedOut(panicLocation: string, timeoutMs: number): boolean {
+    return this.getElapsedMs(panicLocation) >= timeoutMs;
   }
 
   /**
