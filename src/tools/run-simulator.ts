@@ -2,6 +2,8 @@
 // Executes the simulator with an optional seed, sends IPC callbacks to pause/resume timeout tracking
 
 import { exec } from "node:child_process";
+import * as fs from "node:fs/promises";
+import * as path from "node:path";
 import { promisify } from "node:util";
 
 const execAsync = promisify(exec);
@@ -86,6 +88,8 @@ export interface RunSimulatorResult {
   stdout?: string | undefined;
   stderr?: string | undefined;
   error?: string | undefined;
+  output_file?: string | undefined;
+  roadmap?: string | undefined;
 }
 
 /**
@@ -168,6 +172,63 @@ export function detectPanic(output: string, exitCode: number): boolean {
 }
 
 /**
+ * Write simulator output to a file for later inspection.
+ * Returns the path to the output file.
+ */
+export async function writeOutputFile(seed: number, stdout: string, stderr: string): Promise<string> {
+  const filename = `simulator_output_${seed}.txt`;
+  const outputPath = path.join(process.cwd(), filename);
+  const content = `=== STDOUT ===\n${stdout}\n\n=== STDERR ===\n${stderr}`;
+  await fs.writeFile(outputPath, content, "utf-8");
+  return outputPath;
+}
+
+/**
+ * Get roadmap instructions for parsing simulator output.
+ * Returns static guidance text to help agents understand the output format.
+ */
+export function getRoadmap(): string {
+  return `## Simulator Output Roadmap
+
+The output file contains the SQL execution trace from limbo_sim. Each line is a single SQL interaction.
+
+### Output structure:
+1. **Header** (lines 1-25): ASCII art logo, skip this
+2. **Seed info**: Look for \`INFO limbo_sim: XXX: seed=NNNNN\`
+3. **SQL trace**: Lines starting with \`INFO execute_interaction_turso{conn_index=N interaction=...\`
+
+### Log line format:
+\`INFO execute_interaction_turso{conn_index=N interaction=SQL_STATEMENT; -- N}: limbo_sim::runner::execution: 202:\`
+- \`conn_index=N\`: Which connection (0-9) executed the query
+- \`interaction=...\`: The SQL statement
+
+### Key patterns to grep for:
+- \`interaction=CREATE TABLE\` - Table creation
+- \`interaction=INSERT INTO\` - Data insertion
+- \`interaction=UPDATE .* SET\` - Updates
+- \`interaction=DELETE FROM\` - Deletions
+- \`interaction=BEGIN\` / \`COMMIT\` / \`ROLLBACK\` - Transactions
+- \`interaction=DROP TABLE\` - Table drops
+- \`-- FAULT\` - Simulated failures (DISCONNECT, FAULTY QUERY)
+- \`-- ASSERT\` - Assertion checks
+- \`-- ASSUME\` - Precondition checks
+
+### Lines to skip:
+- Lines 1-25 (ASCII art header)
+- Lines containing only \`-- ASSERT\` or \`-- ASSUME\` (metadata, not SQL)
+
+### On failure:
+- **Check the last ~20 lines first** - failure details (panic message, stack trace) appear at the end
+- Use \`tail -20 <output_file>\` to see failure context immediately
+
+### Tips:
+- Output is verbose (66KB+ for 100 interactions) - use grep, don't read sequentially
+- Compare SQL patterns with those in panic_context.md
+- Look for similar table structures, WHERE clauses, or transaction patterns
+- Connection indices (conn_index) show concurrent execution patterns`;
+}
+
+/**
  * Run the simulator with optional seed.
  *
  * @param params - Simulator parameters
@@ -209,10 +270,23 @@ export async function runSimulator(params: RunSimulatorParams = {}): Promise<Run
     const combinedOutput = stdout + stderr;
     const panicFound = detectPanic(combinedOutput, 0);
 
+    // On failure (panic not found), save output to file and provide roadmap
+    if (!panicFound) {
+      const outputFile = await writeOutputFile(seed, stdout, stderr);
+      return {
+        panic_found: false,
+        seed_used: seed,
+        stdout,
+        stderr,
+        output_file: outputFile,
+        roadmap: getRoadmap(),
+      };
+    }
+
     return {
-      panic_found: panicFound,
+      panic_found: true,
       seed_used: seed,
-      panic_message: panicFound ? extractPanicMessage(combinedOutput) : undefined,
+      panic_message: extractPanicMessage(combinedOutput),
       stdout,
       stderr,
     };
@@ -234,25 +308,41 @@ export async function runSimulator(params: RunSimulatorParams = {}): Promise<Run
 
     // Check if this was a timeout
     if (error.killed && error.signal === "SIGTERM") {
+      const outputFile = await writeOutputFile(seed, stdout, stderr);
       return {
         panic_found: false,
         seed_used: seed,
         error: `Simulator timed out after ${timeoutSeconds} seconds`,
         stdout,
         stderr,
+        output_file: outputFile,
+        roadmap: getRoadmap(),
       };
     }
 
     // Check if the error indicates a panic
     const panicFound = detectPanic(combinedOutput, exitCode);
 
+    // On failure (panic not found), save output to file and provide roadmap
+    if (!panicFound) {
+      const outputFile = await writeOutputFile(seed, stdout, stderr);
+      return {
+        panic_found: false,
+        seed_used: seed,
+        stdout,
+        stderr,
+        error: `Simulator exited with code ${exitCode}`,
+        output_file: outputFile,
+        roadmap: getRoadmap(),
+      };
+    }
+
     return {
-      panic_found: panicFound,
+      panic_found: true,
       seed_used: seed,
-      panic_message: panicFound ? extractPanicMessage(combinedOutput) : undefined,
+      panic_message: extractPanicMessage(combinedOutput),
       stdout,
       stderr,
-      error: !panicFound ? `Simulator exited with code ${exitCode}` : undefined,
     };
   } finally {
     // Always notify orchestrator that simulator finished (resume timeout)

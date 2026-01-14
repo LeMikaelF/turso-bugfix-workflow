@@ -40,13 +40,6 @@ so that some seed triggers the panic.
     - Focus on `property.rs` for SQL generation constraints
     - The simulator should naturally produce triggering SQL with some seeds
 
-[//]: # (@formatter:off)
-[//]: # (TODO make the simulator's output available to the agent somehow , but it's very long, so it should be in a file. )
-[//]: # ( If the agent needs it, it should be careful to inspect only what it needs. We'll need to run the simulator once to )
-[//]: # ( inspect its output and give the agent a "roadmap" \(patterns to look for, lines to skip, etc.\) To avoid polluting context, )
-[//]: # ( maybe expose a separate tool "get-simulator-output" that gives these instructions, along with a file name)
-[//]: # (@formatter:on)
-
 3. **Run the simulator**
     - Use the `run-simulator` tool (no parameters for random seed)
     - When panic is found, note the `seed_used` from the result
@@ -70,7 +63,8 @@ Run the simulator to try to reproduce the panic.
 
 - `seed` (optional): Specific seed to use. Omit for random seed.
 - `timeout_seconds` (optional): Max runtime. Default 300 (5 min).
-- Returns: `{ panic_found, seed_used, panic_message?, error? }`
+- Returns: `{ panic_found, seed_used, panic_message?, output_file?, roadmap?, error? }`
+- When panic is NOT found, `output_file` contains the path to saved simulator output and `roadmap` contains instructions for parsing the output file (patterns to grep for, sections to skip, etc.)
 
 ### describe-sim-fix
 

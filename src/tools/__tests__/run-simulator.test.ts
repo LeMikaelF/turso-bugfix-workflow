@@ -5,16 +5,24 @@ import {
   validateSeed,
   validateTimeout,
   runSimulator,
+  writeOutputFile,
+  getRoadmap,
 } from "../run-simulator.js";
 
 // Use vi.hoisted to create mock before module loading
-const { mockExecAsync } = vi.hoisted(() => ({
+const { mockExecAsync, mockWriteFile } = vi.hoisted(() => ({
   mockExecAsync: vi.fn(),
+  mockWriteFile: vi.fn(),
 }));
 
 // Mock util.promisify to return our mock exec
 vi.mock("node:util", () => ({
   promisify: () => mockExecAsync,
+}));
+
+// Mock fs/promises for writeOutputFile
+vi.mock("node:fs/promises", () => ({
+  writeFile: mockWriteFile,
 }));
 
 // Mock fetch globally
@@ -319,6 +327,103 @@ describe("run-simulator", () => {
 
       expect(result.panic_found).toBe(false);
       expect(result.error).toBe("Some random error");
+    });
+
+    it("should return output_file and roadmap when panic is NOT found", async () => {
+      mockExecAsync.mockResolvedValue({
+        stdout: "Simulation completed successfully",
+        stderr: "",
+      });
+      mockWriteFile.mockResolvedValue(undefined);
+
+      const result = await runSimulator({ seed: 123 });
+
+      expect(result.panic_found).toBe(false);
+      expect(result.output_file).toBeDefined();
+      expect(result.output_file).toContain("simulator_output_123.txt");
+      expect(result.roadmap).toBeDefined();
+      expect(result.roadmap).toContain("Simulator Output Roadmap");
+    });
+
+    it("should NOT return output_file and roadmap when panic IS found", async () => {
+      const panicOutput = "PANIC: assertion failed: pCur->isValid";
+
+      const error = new Error("Command failed") as Error & {
+        code: number;
+        stdout: string;
+        stderr: string;
+      };
+      error.code = 1;
+      error.stdout = panicOutput;
+      error.stderr = "";
+      mockExecAsync.mockRejectedValue(error);
+
+      const result = await runSimulator({ seed: 123 });
+
+      expect(result.panic_found).toBe(true);
+      expect(result.output_file).toBeUndefined();
+      expect(result.roadmap).toBeUndefined();
+    });
+
+    it("should return output_file and roadmap on timeout", async () => {
+      const error = new Error("Timeout") as Error & {
+        killed: boolean;
+        signal: string;
+        stdout: string;
+        stderr: string;
+      };
+      error.killed = true;
+      error.signal = "SIGTERM";
+      error.stdout = "partial output";
+      error.stderr = "";
+      mockExecAsync.mockRejectedValue(error);
+      mockWriteFile.mockResolvedValue(undefined);
+
+      const result = await runSimulator({ seed: 456, timeout_seconds: 10 });
+
+      expect(result.panic_found).toBe(false);
+      expect(result.error).toContain("timed out");
+      expect(result.output_file).toBeDefined();
+      expect(result.output_file).toContain("simulator_output_456.txt");
+      expect(result.roadmap).toBeDefined();
+    });
+  });
+
+  describe("writeOutputFile", () => {
+    it("should write combined stdout and stderr to file", async () => {
+      mockWriteFile.mockResolvedValue(undefined);
+
+      const result = await writeOutputFile(42, "stdout content", "stderr content");
+
+      expect(result).toContain("simulator_output_42.txt");
+      expect(mockWriteFile).toHaveBeenCalledWith(
+        expect.stringContaining("simulator_output_42.txt"),
+        expect.stringContaining("=== STDOUT ==="),
+        "utf-8"
+      );
+      expect(mockWriteFile).toHaveBeenCalledWith(
+        expect.any(String),
+        expect.stringContaining("stdout content"),
+        "utf-8"
+      );
+      expect(mockWriteFile).toHaveBeenCalledWith(
+        expect.any(String),
+        expect.stringContaining("=== STDERR ==="),
+        "utf-8"
+      );
+    });
+  });
+
+  describe("getRoadmap", () => {
+    it("should return roadmap with key sections", () => {
+      const roadmap = getRoadmap();
+
+      expect(roadmap).toContain("Simulator Output Roadmap");
+      expect(roadmap).toContain("Output structure");
+      expect(roadmap).toContain("Log line format");
+      expect(roadmap).toContain("Key patterns to grep for");
+      expect(roadmap).toContain("On failure");
+      expect(roadmap).toContain("tail -20");
     });
   });
 });

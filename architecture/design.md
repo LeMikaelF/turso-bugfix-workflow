@@ -296,6 +296,8 @@ interface RunSimulatorResult {
     panic_found: boolean;
     seed_used: number;
     panic_message?: string;
+    output_file?: string;   // Path to saved output (only on failure)
+    roadmap?: string;       // Instructions for parsing output (only on failure)
 }
 
 async function runSimulator(params: RunSimulatorParams): Promise<RunSimulatorResult> {
