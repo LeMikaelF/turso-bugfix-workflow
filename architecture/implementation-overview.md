@@ -116,7 +116,7 @@ panic-fix-workflow/
 ```json
 {
   "dependencies": {
-    "@libsql/client": "^0.14.0",
+    "@tursodatabase/database": "^0.4.3",
     "@modelcontextprotocol/sdk": "^1.0.0",
     "express": "^4.21.0"
   },
