@@ -157,6 +157,16 @@ describe("agents", () => {
         expect.stringContaining("/custom/tools/server.ts")
       );
     });
+
+    it("should propagate errors when runInSession fails", async () => {
+      (runInSession as ReturnType<typeof vi.fn>).mockRejectedValue(
+        new Error("Session command failed")
+      );
+
+      await expect(setupMcpTools("test-session")).rejects.toThrow(
+        "Session command failed"
+      );
+    });
   });
 
   describe("spawnAgent", () => {
@@ -168,7 +178,6 @@ describe("agents", () => {
       const options: SpawnAgentOptions = {
         sessionName: "test-session",
         panicLocation: "src/vdbe.c:1234",
-        agentType: "reproducer",
         promptContent: "Test prompt",
         timeoutMs: 60000,
         ipcServer,
@@ -212,7 +221,6 @@ describe("agents", () => {
       const options: SpawnAgentOptions = {
         sessionName: "test-session",
         panicLocation: "src/vdbe.c:1234",
-        agentType: "reproducer",
         promptContent: "prompt",
         timeoutMs: 60000,
         ipcServer,
@@ -234,7 +242,6 @@ describe("agents", () => {
       const options: SpawnAgentOptions = {
         sessionName: "test-session",
         panicLocation: "src/vdbe.c:1234",
-        agentType: "fixer",
         promptContent: "prompt",
         timeoutMs: 60000,
         ipcServer,
@@ -272,7 +279,6 @@ describe("agents", () => {
       const options: SpawnAgentOptions = {
         sessionName: "test-session",
         panicLocation: "src/vdbe.c:1234",
-        agentType: "reproducer",
         promptContent: "prompt",
         timeoutMs: 60000,
         ipcServer,
@@ -297,7 +303,6 @@ describe("agents", () => {
       const options: SpawnAgentOptions = {
         sessionName: "test-session",
         panicLocation: "src/vdbe.c:1234",
-        agentType: "reproducer",
         promptContent: "Fix this bug: it's broken",
         timeoutMs: 60000,
         ipcServer,
@@ -322,7 +327,6 @@ describe("agents", () => {
       const options: SpawnAgentOptions = {
         sessionName: "test-session",
         panicLocation: "src/vdbe.c:1234",
-        agentType: "reproducer",
         promptContent: "prompt",
         timeoutMs: 60000,
         ipcServer,
@@ -363,6 +367,25 @@ describe("agents", () => {
       );
       expect(result.success).toBe(true);
     });
+
+    it("should throw with context when prompt file cannot be read", async () => {
+      (readFile as ReturnType<typeof vi.fn>).mockRejectedValue(
+        new Error("ENOENT: no such file or directory")
+      );
+
+      const ipcServer = createMockIpcServer();
+      const config = { reproducerTimeoutMs: 3600000 };
+
+      await expect(
+        spawnReproducerAgent(
+          "test-session",
+          "src/vdbe.c:1234",
+          "/nonexistent/prompt.md",
+          config,
+          ipcServer
+        )
+      ).rejects.toThrow("Failed to read reproducer prompt at /nonexistent/prompt.md");
+    });
   });
 
   describe("spawnFixerAgent", () => {
@@ -391,6 +414,25 @@ describe("agents", () => {
         expect.any(Object)
       );
       expect(result.success).toBe(true);
+    });
+
+    it("should throw with context when prompt file cannot be read", async () => {
+      (readFile as ReturnType<typeof vi.fn>).mockRejectedValue(
+        new Error("ENOENT: no such file or directory")
+      );
+
+      const ipcServer = createMockIpcServer();
+      const config = { fixerTimeoutMs: 3600000 };
+
+      await expect(
+        spawnFixerAgent(
+          "test-session",
+          "src/vdbe.c:1234",
+          "/nonexistent/fixer.md",
+          config,
+          ipcServer
+        )
+      ).rejects.toThrow("Failed to read fixer prompt at /nonexistent/fixer.md");
     });
   });
 });

@@ -7,28 +7,24 @@
  * Run with: npm test -- sandbox.integration
  */
 
-import { describe, it, expect, beforeAll, afterEach, afterAll } from "vitest";
-import { exec } from "node:child_process";
-import { promisify } from "node:util";
-import { mkdir, writeFile, rm } from "node:fs/promises";
-import { join } from "node:path";
+import { describe, it, expect, afterEach, afterAll } from "vitest";
+import { execSync } from "node:child_process";
+import { rm } from "node:fs/promises";
 import { runInSession, deleteSession, sessionExists } from "../sandbox.js";
 
-const execAsync = promisify(exec);
-
-// Check if agentfs is available
-async function isAgentFsAvailable(): Promise<boolean> {
+// Check if agentfs is available synchronously at module load time
+function checkAgentFsAvailable(): boolean {
   try {
-    await execAsync("agentfs --version");
+    execSync("agentfs --version", { stdio: "ignore" });
     return true;
   } catch {
     return false;
   }
 }
 
-describe("sandbox integration", () => {
-  let agentfsAvailable = false;
+const agentfsAvailable = checkAgentFsAvailable();
 
+describe.skipIf(!agentfsAvailable)("sandbox integration", () => {
   // Generate unique session names to avoid conflicts between test runs
   const testSessionPrefix = `test-session-${Date.now()}`;
   let sessionCounter = 0;
@@ -36,13 +32,6 @@ describe("sandbox integration", () => {
 
   // Track sessions created during tests for cleanup
   const createdSessions: string[] = [];
-
-  beforeAll(async () => {
-    agentfsAvailable = await isAgentFsAvailable();
-    if (!agentfsAvailable) {
-      console.warn("AgentFS not available - integration tests will be skipped");
-    }
-  });
 
   afterEach(async () => {
     // Clean up all sessions created during tests
@@ -58,7 +47,6 @@ describe("sandbox integration", () => {
 
   describe("basic command execution", () => {
     it("should create session implicitly on first run", async () => {
-      if (!agentfsAvailable) return;
 
       const sessionName = getUniqueSessionName();
       createdSessions.push(sessionName);
@@ -75,8 +63,6 @@ describe("sandbox integration", () => {
     });
 
     it("should run commands with CLI flags", async () => {
-      if (!agentfsAvailable) return;
-
       const sessionName = getUniqueSessionName();
       createdSessions.push(sessionName);
 
@@ -87,8 +73,6 @@ describe("sandbox integration", () => {
     });
 
     it("should capture stderr on failed commands", async () => {
-      if (!agentfsAvailable) return;
-
       const sessionName = getUniqueSessionName();
       createdSessions.push(sessionName);
 
@@ -102,8 +86,6 @@ describe("sandbox integration", () => {
     });
 
     it("should return non-zero exit code for failed commands", async () => {
-      if (!agentfsAvailable) return;
-
       const sessionName = getUniqueSessionName();
       createdSessions.push(sessionName);
 
@@ -115,8 +97,6 @@ describe("sandbox integration", () => {
 
   describe("multi-word commands", () => {
     it("should handle echo with multiple words", async () => {
-      if (!agentfsAvailable) return;
-
       const sessionName = getUniqueSessionName();
       createdSessions.push(sessionName);
 
@@ -127,8 +107,6 @@ describe("sandbox integration", () => {
     });
 
     it("should handle bash -c with multi-word script", async () => {
-      if (!agentfsAvailable) return;
-
       const sessionName = getUniqueSessionName();
       createdSessions.push(sessionName);
 
@@ -144,8 +122,6 @@ describe("sandbox integration", () => {
     });
 
     it("should handle node -e with multi-word JavaScript", async () => {
-      if (!agentfsAvailable) return;
-
       const sessionName = getUniqueSessionName();
       createdSessions.push(sessionName);
 
@@ -160,8 +136,6 @@ describe("sandbox integration", () => {
     });
 
     it("should handle grep with pattern containing spaces", async () => {
-      if (!agentfsAvailable) return;
-
       const sessionName = getUniqueSessionName();
       createdSessions.push(sessionName);
 
@@ -176,8 +150,6 @@ describe("sandbox integration", () => {
     });
 
     it("should handle commands with pipes and multiple arguments", async () => {
-      if (!agentfsAvailable) return;
-
       const sessionName = getUniqueSessionName();
       createdSessions.push(sessionName);
 
@@ -190,8 +162,6 @@ describe("sandbox integration", () => {
     });
 
     it("should handle printf with format and multiple arguments", async () => {
-      if (!agentfsAvailable) return;
-
       const sessionName = getUniqueSessionName();
       createdSessions.push(sessionName);
 
@@ -207,8 +177,6 @@ describe("sandbox integration", () => {
 
   describe("session lifecycle: create -> modify -> delete", () => {
     it("should follow complete lifecycle: not exists -> create -> exists -> modify -> delete -> not exists", async () => {
-      if (!agentfsAvailable) return;
-
       const sessionName = getUniqueSessionName();
       // Don't add to createdSessions - we're testing deletion explicitly
 
@@ -245,16 +213,12 @@ describe("sandbox integration", () => {
     });
 
     it("should not throw when deleting non-existent session", async () => {
-      if (!agentfsAvailable) return;
-
       await expect(
         deleteSession("nonexistent-session-xyz-never-created-12345")
       ).resolves.not.toThrow();
     });
 
     it("should handle deleting the same session twice (idempotent)", async () => {
-      if (!agentfsAvailable) return;
-
       const sessionName = getUniqueSessionName();
 
       // Create session
@@ -271,8 +235,6 @@ describe("sandbox integration", () => {
     });
 
     it("should allow recreating a deleted session", async () => {
-      if (!agentfsAvailable) return;
-
       const sessionName = getUniqueSessionName();
 
       // Create, verify, delete
@@ -294,8 +256,6 @@ describe("sandbox integration", () => {
 
   describe("simulating agent-like behavior (lightweight stand-in for claude)", () => {
     it("should run a bash script that simulates agent output", async () => {
-      if (!agentfsAvailable) return;
-
       const sessionName = getUniqueSessionName();
       createdSessions.push(sessionName);
 
@@ -320,8 +280,6 @@ describe("sandbox integration", () => {
     });
 
     it("should run node script that simulates agent behavior", async () => {
-      if (!agentfsAvailable) return;
-
       const sessionName = getUniqueSessionName();
       createdSessions.push(sessionName);
 
@@ -344,8 +302,6 @@ describe("sandbox integration", () => {
     });
 
     it("should handle long-running command (simulating agent work)", async () => {
-      if (!agentfsAvailable) return;
-
       const sessionName = getUniqueSessionName();
       createdSessions.push(sessionName);
 
@@ -363,8 +319,6 @@ describe("sandbox integration", () => {
     });
 
     it("should pass environment variables to commands", async () => {
-      if (!agentfsAvailable) return;
-
       const sessionName = getUniqueSessionName();
       createdSessions.push(sessionName);
 
@@ -392,8 +346,6 @@ describe("sandbox integration", () => {
     });
 
     it("should create and read files within a session", async () => {
-      if (!agentfsAvailable) return;
-
       const sessionName = getUniqueSessionName();
       createdSessions.push(sessionName);
 
@@ -414,8 +366,6 @@ describe("sandbox integration", () => {
     });
 
     it("should persist file changes across multiple commands in same session", async () => {
-      if (!agentfsAvailable) return;
-
       const sessionName = getUniqueSessionName();
       createdSessions.push(sessionName);
 
@@ -446,8 +396,6 @@ describe("sandbox integration", () => {
 
   describe("edge cases", () => {
     it("should handle empty command output", async () => {
-      if (!agentfsAvailable) return;
-
       const sessionName = getUniqueSessionName();
       createdSessions.push(sessionName);
 
@@ -458,8 +406,6 @@ describe("sandbox integration", () => {
     });
 
     it("should handle commands with special characters", async () => {
-      if (!agentfsAvailable) return;
-
       const sessionName = getUniqueSessionName();
       createdSessions.push(sessionName);
 
@@ -474,8 +420,6 @@ describe("sandbox integration", () => {
     });
 
     it("should handle very long output", async () => {
-      if (!agentfsAvailable) return;
-
       const sessionName = getUniqueSessionName();
       createdSessions.push(sessionName);
 
@@ -491,8 +435,6 @@ describe("sandbox integration", () => {
     });
 
     it("should handle commands that output to both stdout and stderr", async () => {
-      if (!agentfsAvailable) return;
-
       const sessionName = getUniqueSessionName();
       createdSessions.push(sessionName);
 

@@ -113,7 +113,7 @@ export async function sessionExists(
   }
 }
 
-// Type guard for exec errors
+// Type guard for exec errors (exit code is a number)
 interface ExecError extends Error {
   code?: number;
   stdout?: string;
@@ -121,16 +121,24 @@ interface ExecError extends Error {
 }
 
 function isExecError(error: unknown): error is ExecError {
-  return error instanceof Error && "code" in error;
+  return (
+    error instanceof Error &&
+    "code" in error &&
+    (typeof (error as ExecError).code === "number" || (error as ExecError).code === undefined)
+  );
 }
 
-// Type guard for Node.js errors with code
+// Type guard for Node.js errors with code (e.g., ENOENT, EACCES)
 interface NodeError extends Error {
   code?: string;
 }
 
 function isNodeError(error: unknown): error is NodeError {
-  return error instanceof Error && "code" in error;
+  return (
+    error instanceof Error &&
+    "code" in error &&
+    typeof (error as NodeError).code === "string"
+  );
 }
 
 // Sandbox manager interface for dependency injection

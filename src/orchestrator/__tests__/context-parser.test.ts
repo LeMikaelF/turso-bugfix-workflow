@@ -236,6 +236,20 @@ No closing fence
         expect(result.errors).toContain("Missing required field: why_simulator_missed");
         expect(result.errors).toContain("Missing required field: simulator_changes");
       });
+
+      it("should fail when failing_seed is not a number", () => {
+        const data = {
+          panic_location: "src/vdbe.c:1234",
+          panic_message: "assertion failed",
+          tcl_test_file: "test/panic.test",
+          failing_seed: "42" as unknown as number, // String instead of number
+          why_simulator_missed: "Missing edge case",
+          simulator_changes: "Added new test path",
+        } as PanicContextData;
+        const result = validateRequiredFields(data, "reproducer");
+        expect(result.valid).toBe(false);
+        expect(result.errors).toContain("Invalid type for failing_seed: expected number, got string");
+      });
     });
 
     describe("fixer phase", () => {

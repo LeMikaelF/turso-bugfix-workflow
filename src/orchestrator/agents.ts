@@ -6,12 +6,9 @@ import type { IpcServer } from "./ipc-server.js";
 import type { Config } from "./config.js";
 import { runInSession } from "./sandbox.js";
 
-export type AgentType = "reproducer" | "fixer";
-
 export interface SpawnAgentOptions {
   sessionName: string;
   panicLocation: string;
-  agentType: AgentType;
   promptContent: string;
   timeoutMs: number;
   ipcServer: IpcServer;
@@ -105,6 +102,7 @@ export async function spawnAgent(options: SpawnAgentOptions): Promise<AgentResul
   let stdout = "";
   let stderr = "";
   let killed = false;
+  let processExited = false;
 
   // Collect stdout
   proc.stdout?.on("data", (data: Buffer) => {
@@ -116,9 +114,9 @@ export async function spawnAgent(options: SpawnAgentOptions): Promise<AgentResul
     stderr += data.toString();
   });
 
-  // Set up timeout polling
+  // Set up timeout polling (checks if process still running to avoid race condition)
   const timeoutCheck = setInterval(() => {
-    if (ipcServer.hasTimedOut(panicLocation, timeoutMs)) {
+    if (!processExited && ipcServer.hasTimedOut(panicLocation, timeoutMs)) {
       killed = true;
       proc.kill("SIGTERM");
       // Give it a moment to terminate gracefully, then force kill
@@ -133,9 +131,11 @@ export async function spawnAgent(options: SpawnAgentOptions): Promise<AgentResul
   // Wait for process to complete
   const exitCode = await new Promise<number>((resolve) => {
     proc.on("close", (code) => {
+      processExited = true;
       resolve(code ?? 1);
     });
     proc.on("error", () => {
+      processExited = true;
       resolve(1);
     });
   });
@@ -145,11 +145,9 @@ export async function spawnAgent(options: SpawnAgentOptions): Promise<AgentResul
   const elapsedMs = ipcServer.getElapsedMs(panicLocation);
   ipcServer.stopTracking(panicLocation);
 
-  const timedOut = killed || elapsedMs >= timeoutMs;
-
   return {
-    success: exitCode === 0 && !timedOut,
-    timedOut,
+    success: exitCode === 0 && !killed,
+    timedOut: killed,
     exitCode,
     stdout,
     stderr,
@@ -174,12 +172,17 @@ export async function spawnReproducerAgent(
   config: Pick<Config, "reproducerTimeoutMs">,
   ipcServer: IpcServer
 ): Promise<AgentResult> {
-  const promptContent = await readFile(promptPath, "utf-8");
+  let promptContent: string;
+  try {
+    promptContent = await readFile(promptPath, "utf-8");
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    throw new Error(`Failed to read reproducer prompt at ${promptPath}: ${message}`);
+  }
 
   return spawnAgent({
     sessionName,
     panicLocation,
-    agentType: "reproducer",
     promptContent,
     timeoutMs: config.reproducerTimeoutMs,
     ipcServer,
@@ -203,12 +206,17 @@ export async function spawnFixerAgent(
   config: Pick<Config, "fixerTimeoutMs">,
   ipcServer: IpcServer
 ): Promise<AgentResult> {
-  const promptContent = await readFile(promptPath, "utf-8");
+  let promptContent: string;
+  try {
+    promptContent = await readFile(promptPath, "utf-8");
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    throw new Error(`Failed to read fixer prompt at ${promptPath}: ${message}`);
+  }
 
   return spawnAgent({
     sessionName,
     panicLocation,
-    agentType: "fixer",
     promptContent,
     timeoutMs: config.fixerTimeoutMs,
     ipcServer,

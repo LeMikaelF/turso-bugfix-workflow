@@ -27,37 +27,31 @@ export interface ValidationResult {
 // Regex to match the first ```json code block
 const JSON_BLOCK_REGEX = /```json\s*\n([\s\S]*?)\n```/;
 
+const BASE_FIELDS: (keyof PanicContextData)[] = [
+  "panic_location",
+  "panic_message",
+  "tcl_test_file",
+];
+
+const REPRODUCER_FIELDS: (keyof PanicContextData)[] = [
+  ...BASE_FIELDS,
+  "failing_seed",
+  "why_simulator_missed",
+  "simulator_changes",
+];
+
+const FIXER_AND_SHIP_FIELDS: (keyof PanicContextData)[] = [
+  ...REPRODUCER_FIELDS,
+  "bug_description",
+  "fix_description",
+];
+
 // Required fields for each phase
 const REQUIRED_FIELDS_BY_PHASE: Record<ValidationPhase, (keyof PanicContextData)[]> = {
-  repo_setup: ["panic_location", "panic_message", "tcl_test_file"],
-  reproducer: [
-    "panic_location",
-    "panic_message",
-    "tcl_test_file",
-    "failing_seed",
-    "why_simulator_missed",
-    "simulator_changes",
-  ],
-  fixer: [
-    "panic_location",
-    "panic_message",
-    "tcl_test_file",
-    "failing_seed",
-    "why_simulator_missed",
-    "simulator_changes",
-    "bug_description",
-    "fix_description",
-  ],
-  ship: [
-    "panic_location",
-    "panic_message",
-    "tcl_test_file",
-    "failing_seed",
-    "why_simulator_missed",
-    "simulator_changes",
-    "bug_description",
-    "fix_description",
-  ],
+  repo_setup: BASE_FIELDS,
+  reproducer: REPRODUCER_FIELDS,
+  fixer: FIXER_AND_SHIP_FIELDS,
+  ship: FIXER_AND_SHIP_FIELDS,
 };
 
 /**
@@ -89,6 +83,7 @@ export function parseContextFile(content: string): ParseResult {
 
 /**
  * Validate that all required fields for a phase are present and non-empty.
+ * Also performs type validation for specific fields.
  */
 export function validateRequiredFields(
   data: PanicContextData,
@@ -101,6 +96,8 @@ export function validateRequiredFields(
     const value = data[field];
     if (value === undefined || value === null || value === "") {
       errors.push(`Missing required field: ${field}`);
+    } else if (field === "failing_seed" && typeof value !== "number") {
+      errors.push(`Invalid type for failing_seed: expected number, got ${typeof value}`);
     }
   }
 
