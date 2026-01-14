@@ -64,7 +64,7 @@ export const handleRepoSetup: StateHandler = async (ctx): Promise<StateResult> =
   await logger.info(panicLocation, "repo_setup", "Creating panic_context.md");
 
   // Create panic_context.md with initial JSON block
-  const contextContent = generateContextFile(panic, tclTestFile);
+  const contextContent = await generateContextFile(panic, tclTestFile);
   const escapedContextContent = escapeForHeredoc(contextContent);
 
   const writeContextResult = await sandbox.runInSession(

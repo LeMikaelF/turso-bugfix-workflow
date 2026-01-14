@@ -192,14 +192,14 @@ describe("generateTclTest", () => {
 });
 
 describe("generateContextFile", () => {
-  it("should generate correct context file format", () => {
+  it("should generate correct context file format", async () => {
     const panic = createMockPanic({
       panic_location: "src/vdbe.c:1234",
       panic_message: "assertion failed",
       sql_statements: "SELECT 1;",
     });
 
-    const result = generateContextFile(panic, "test/panic-test.test");
+    const result = await generateContextFile(panic, "test/panic-test.test");
 
     expect(result).toContain("# Panic Context: src/vdbe.c:1234");
     expect(result).toContain("**Location**: src/vdbe.c:1234");
@@ -211,9 +211,9 @@ describe("generateContextFile", () => {
     expect(result).toContain('"tcl_test_file": "test/panic-test.test"');
   });
 
-  it("should include placeholder sections for agents", () => {
+  it("should include placeholder sections for agents", async () => {
     const panic = createMockPanic();
-    const result = generateContextFile(panic, "test/test.test");
+    const result = await generateContextFile(panic, "test/test.test");
 
     expect(result).toContain("## Reproducer Notes");
     expect(result).toContain("## Fixer Notes");
