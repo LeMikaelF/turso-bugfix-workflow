@@ -68,7 +68,7 @@ panic-fix-workflow/
 
 10. `src/orchestrator/git.ts` - branch creation, squash commits
 11. `src/orchestrator/pr.ts` - create draft PR via `gh pr create`
-12. `src/orchestrator/workflow.ts` - state machine with transitions:
+12. `src/orchestrator/workflow.ts` - state machine with transitions: // change of plans: use a orchestrator/workflow/ dir with a file per state
     - pending → repo_setup → reproducing → fixing → shipping → pr_open
     - any → needs_human_review (on error)
 13. `src/orchestrator/index.ts` - CLI entry point with main loop and graceful shutdown
