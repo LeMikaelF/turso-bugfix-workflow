@@ -53,16 +53,56 @@ export async function createBranch(
 }
 
 /**
+ * Wrap text to a maximum line width, preserving words.
+ * Lines are broken at word boundaries when possible.
+ */
+function wrapText(text: string, maxWidth: number): string {
+  if (text.length <= maxWidth) {
+    return text;
+  }
+
+  const words = text.split(" ");
+  const lines: string[] = [];
+  let currentLine = "";
+
+  for (const word of words) {
+    if (currentLine.length === 0) {
+      currentLine = word;
+    } else if (currentLine.length + 1 + word.length <= maxWidth) {
+      currentLine += " " + word;
+    } else {
+      lines.push(currentLine);
+      currentLine = word;
+    }
+  }
+
+  if (currentLine.length > 0) {
+    lines.push(currentLine);
+  }
+
+  return lines.join("\n");
+}
+
+const SUBJECT_MAX_WIDTH = 72;
+const BODY_MAX_WIDTH = 72;
+
+/**
  * Build a formatted commit message from panic context data.
+ * Subject line is truncated at 72 chars, body lines are wrapped at 72 chars.
  */
 export function buildCommitMessage(contextData: PanicContextData): string {
-  //TODO these need to be wrapped, no long lines in commit messages!
+  const subject = `fix: ${contextData.panic_message}`;
+  const truncatedSubject =
+    subject.length > SUBJECT_MAX_WIDTH
+      ? subject.slice(0, SUBJECT_MAX_WIDTH - 3) + "..."
+      : subject;
+
   const lines = [
-    `fix: ${contextData.panic_message}`,
+    truncatedSubject,
     "",
-    `Location: ${contextData.panic_location}`,
-    `Bug: ${contextData.bug_description ?? ""}`,
-    `Fix: ${contextData.fix_description ?? ""}`,
+    wrapText(`Location: ${contextData.panic_location}`, BODY_MAX_WIDTH),
+    wrapText(`Bug: ${contextData.bug_description ?? ""}`, BODY_MAX_WIDTH),
+    wrapText(`Fix: ${contextData.fix_description ?? ""}`, BODY_MAX_WIDTH),
   ];
 
   return lines.join("\n");
