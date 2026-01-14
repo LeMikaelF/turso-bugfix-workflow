@@ -1,8 +1,18 @@
 // Git operations for the panic-fix workflow
-// Handles squashing commits into a single well-formatted commit
+// Handles branch creation and squashing commits into a single well-formatted commit
 
 import type { PanicContextData } from "./context-parser.js";
 import type { SandboxManager } from "./sandbox.js";
+
+export interface CreateBranchParams {
+  sessionName: string;
+  branchName: string;
+}
+
+export interface CreateBranchResult {
+  success: boolean;
+  error?: string;
+}
 
 export interface SquashCommitsParams {
   sessionName: string;
@@ -15,18 +25,44 @@ export interface SquashResult {
 }
 
 /**
+ * Create and checkout a new branch in the sandbox.
+ *
+ * @param params - Session name and branch name
+ * @param sandbox - Sandbox manager for running commands
+ * @returns Result indicating success or failure
+ */
+export async function createBranch(
+  params: CreateBranchParams,
+  sandbox: SandboxManager
+): Promise<CreateBranchResult> {
+  const { sessionName, branchName } = params;
+
+  const result = await sandbox.runInSession(
+    sessionName,
+    `git checkout -b ${branchName}`
+  );
+
+  if (result.exitCode !== 0) {
+    return {
+      success: false,
+      error: `Failed to create branch: ${result.stderr}`,
+    };
+  }
+
+  return { success: true };
+}
+
+/**
  * Build a formatted commit message from panic context data.
  */
 export function buildCommitMessage(contextData: PanicContextData): string {
+  //TODO these need to be wrapped, no long lines in commit messages!
   const lines = [
     `fix: ${contextData.panic_message}`,
     "",
     `Location: ${contextData.panic_location}`,
     `Bug: ${contextData.bug_description ?? ""}`,
     `Fix: ${contextData.fix_description ?? ""}`,
-    "",
-    `Failing seed: ${contextData.failing_seed ?? ""}`,
-    `Simulator: ${contextData.why_simulator_missed ?? ""}`,
   ];
 
   return lines.join("\n");

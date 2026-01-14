@@ -96,21 +96,16 @@ export async function createPullRequest(
 ): Promise<string> {
   const { sessionName, contextData } = params;
 
-  // Load and format template
   const template = await loadPrTemplate();
   const body = formatPrBody(template, contextData);
 
-  // Build title
   const title = `fix: ${contextData.panic_message}`;
 
-  // Build label flags
   const labelFlags = buildLabelFlags(config.prLabels);
 
-  // Escape title and body for shell
   const escapedTitle = escapeForShell(title);
   const escapedBody = escapeForShell(body);
 
-  // Build the gh pr create command
   const command = [
     "gh pr create",
     `--title ${escapedTitle}`,

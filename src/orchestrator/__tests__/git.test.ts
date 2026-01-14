@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { squashCommits, buildCommitMessage } from "../git.js";
+import { createBranch, squashCommits, buildCommitMessage } from "../git.js";
 import type { PanicContextData } from "../context-parser.js";
 import type { SandboxManager, ExecResult } from "../sandbox.js";
 
@@ -40,6 +40,53 @@ describe("git", () => {
     vi.clearAllMocks();
   });
 
+  describe("createBranch", () => {
+    it("should run git checkout -b command", async () => {
+      const sandbox = createMockSandbox(async () => successResult());
+
+      const result = await createBranch(
+        { sessionName: "test-session", branchName: "fix/test-branch" },
+        sandbox
+      );
+
+      expect(result.success).toBe(true);
+      expect(sandbox.runInSession).toHaveBeenCalledTimes(1);
+      expect(sandbox.runInSession).toHaveBeenCalledWith(
+        "test-session",
+        "git checkout -b fix/test-branch"
+      );
+    });
+
+    it("should return error when branch creation fails", async () => {
+      const sandbox = createMockSandbox(async () =>
+        failureResult("fatal: A branch named 'fix/test' already exists")
+      );
+
+      const result = await createBranch(
+        { sessionName: "test-session", branchName: "fix/test" },
+        sandbox
+      );
+
+      expect(result.success).toBe(false);
+      expect(result.error).toContain("Failed to create branch");
+      expect(result.error).toContain("already exists");
+    });
+
+    it("should handle branch names with special characters", async () => {
+      const sandbox = createMockSandbox(async () => successResult());
+
+      await createBranch(
+        { sessionName: "test-session", branchName: "fix/panic-src-vdbe.c-1234" },
+        sandbox
+      );
+
+      expect(sandbox.runInSession).toHaveBeenCalledWith(
+        "test-session",
+        "git checkout -b fix/panic-src-vdbe.c-1234"
+      );
+    });
+  });
+
   describe("buildCommitMessage", () => {
     it("should build a formatted commit message with all fields", () => {
       const message = buildCommitMessage(sampleContextData);
@@ -48,10 +95,6 @@ describe("git", () => {
       expect(message).toContain("Location: src/vdbe.c:1234");
       expect(message).toContain("Bug: Cursor used after being closed");
       expect(message).toContain("Fix: Added null check before cursor access");
-      expect(message).toContain("Failing seed: 42");
-      expect(message).toContain(
-        "Simulator: Did not generate cursor operations after close"
-      );
     });
 
     it("should handle missing optional fields", () => {
@@ -67,8 +110,6 @@ describe("git", () => {
       expect(message).toContain("Location: src/main.c:100");
       expect(message).toContain("Bug: ");
       expect(message).toContain("Fix: ");
-      expect(message).toContain("Failing seed: ");
-      expect(message).toContain("Simulator: ");
     });
 
     it("should preserve newlines in the message format", () => {
