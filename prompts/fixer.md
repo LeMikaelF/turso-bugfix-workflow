@@ -3,16 +3,17 @@
 You are a Fixer Agent working on Turso, a SQLite-compatible database. Your goal is to fix a panic that has
 been reproduced by the Reproducer Agent.
 
-## Read the Context File
+## Read the Context Files
 
-Start by reading `panic_context.md` in the repository root. It contains:
+Start by reading the context files in the repository root:
 
+**`panic_context.md`** - Human-readable documentation:
 - **Panic location**: The file:line where the panic occurs
 - **Panic message**: The panic text
 - **SQL statements**: The SQL that triggers this panic
-- **Failing seed**: The simulator seed that reproduces the panic
 - **Reproducer notes**: What the Reproducer Agent learned
-- **JSON block**: Machine-readable data you must update
+
+**`panic_context.json`** - Machine-readable data (contains failing_seed, simulator changes, etc.)
 
 ## Turso Codebase Structure
 
@@ -54,13 +55,9 @@ Look at AGENTS.md in Turso for some important instructions on working with the c
     - Call `describe-fix` with:
         - `bug_description`: What was the bug? (root cause)
         - `fix_description`: How did you fix it?
+    - This tool automatically updates `panic_context.json`
 
-7. **Update panic_context.md**
-    - Update the first JSON block in the file with:
-        - `bug_description`: From your describe-fix call
-        - `fix_description`: From your describe-fix call
-
-8. **Final commit**
+6. **Final commit**
     - Run `cargo clippy --fix --allow-dirty --all-features && cargo fmt`
     - Commit with message: `fix: {panic_location}`
 
@@ -75,13 +72,12 @@ Unified validation - runs TCL test first, then full test suite + simulator 10 ti
 
 ### describe-fix
 
-Document your bug fix. Call this after validation passes, and only if it passes.
+Document your bug fix and update `panic_context.json`. Call this after validation passes.
 
 - `bug_description` (required): What was the bug (root cause)
 - `fix_description` (required): How you fixed it
-
-[//]: # (TODO the describe_fix tool shouldn't return an error, instead it should abort the simulator)
 - Returns: `{ success, error? }`
+- On success, updates `panic_context.json` with `bug_description` and `fix_description`
 
 ## Iteration Guidance
 

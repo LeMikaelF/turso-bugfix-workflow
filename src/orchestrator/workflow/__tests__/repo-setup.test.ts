@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { handleRepoSetup } from "../states/repo-setup.js";
 import { generateTclTest } from "../templates/tcl-test.js";
-import { generateContextFile } from "../templates/context-file.js";
+import { generateContextFile, generateContextJsonFile } from "../templates/context-file.js";
 import type { WorkflowContext } from "../types.js";
 import type { ExecResult } from "../../sandbox.js";
 import {
@@ -14,6 +14,7 @@ import {
   successResult,
   failureResult,
 } from "./test-utils.js";
+import { CONTEXT_JSON_FILE } from "../../context-json.js";
 
 // Mock createBranch from git.ts
 vi.mock("../../git.js", () => ({
@@ -83,6 +84,15 @@ describe("handleRepoSetup", () => {
       );
     });
 
+    it("should create panic_context.json", async () => {
+      await handleRepoSetup(ctx);
+
+      expect(mockRunInSession).toHaveBeenCalledWith(
+        "test-session",
+        expect.stringContaining(`cat > ${CONTEXT_JSON_FILE}`)
+      );
+    });
+
     it("should stage and commit changes", async () => {
       await handleRepoSetup(ctx);
 
@@ -124,10 +134,23 @@ describe("handleRepoSetup", () => {
       expect(result.error).toContain("Failed to create context file");
     });
 
+    it("should return needs_human_review when JSON context file creation fails", async () => {
+      mockRunInSession
+        .mockResolvedValueOnce(successResult()) // TCL file
+        .mockResolvedValueOnce(successResult()) // context file
+        .mockResolvedValueOnce(failureResult("disk full")); // JSON file fails
+
+      const result = await handleRepoSetup(ctx);
+
+      expect(result.nextStatus).toBe("needs_human_review");
+      expect(result.error).toContain("Failed to create JSON context file");
+    });
+
     it("should return needs_human_review when git add fails", async () => {
       mockRunInSession
         .mockResolvedValueOnce(successResult()) // TCL file
         .mockResolvedValueOnce(successResult()) // context file
+        .mockResolvedValueOnce(successResult()) // JSON file
         .mockResolvedValueOnce(failureResult("git error")); // git add
 
       const result = await handleRepoSetup(ctx);
@@ -140,6 +163,7 @@ describe("handleRepoSetup", () => {
       mockRunInSession
         .mockResolvedValueOnce(successResult()) // TCL file
         .mockResolvedValueOnce(successResult()) // context file
+        .mockResolvedValueOnce(successResult()) // JSON file
         .mockResolvedValueOnce(successResult()) // git add
         .mockResolvedValueOnce(failureResult("nothing to commit")); // git commit
 
@@ -206,9 +230,8 @@ describe("generateContextFile", () => {
     expect(result).toContain("**Message**: assertion failed");
     expect(result).toContain("```sql");
     expect(result).toContain("SELECT 1;");
-    expect(result).toContain("```json");
-    expect(result).toContain('"panic_location": "src/vdbe.c:1234"');
-    expect(result).toContain('"tcl_test_file": "test/panic-test.test"');
+    // Note: JSON block is now in a separate panic_context.json file
+    expect(result).not.toContain("```json");
   });
 
   it("should include placeholder sections for agents", async () => {
@@ -219,5 +242,43 @@ describe("generateContextFile", () => {
     expect(result).toContain("## Fixer Notes");
     expect(result).toContain("<!-- Reproducer agent writes analysis here -->");
     expect(result).toContain("<!-- Fixer agent writes analysis here -->");
+  });
+});
+
+describe("generateContextJsonFile", () => {
+  it("should generate valid JSON with required fields", () => {
+    const panic = createMockPanic({
+      panic_location: "src/vdbe.c:1234",
+      panic_message: "assertion failed",
+    });
+
+    const result = generateContextJsonFile(panic, "test/panic-test.test");
+    const parsed = JSON.parse(result);
+
+    expect(parsed.panic_location).toBe("src/vdbe.c:1234");
+    expect(parsed.panic_message).toBe("assertion failed");
+    expect(parsed.tcl_test_file).toBe("test/panic-test.test");
+  });
+
+  it("should not include optional fields", () => {
+    const panic = createMockPanic();
+
+    const result = generateContextJsonFile(panic, "test/test.test");
+    const parsed = JSON.parse(result);
+
+    expect(parsed.failing_seed).toBeUndefined();
+    expect(parsed.why_simulator_missed).toBeUndefined();
+    expect(parsed.simulator_changes).toBeUndefined();
+    expect(parsed.bug_description).toBeUndefined();
+    expect(parsed.fix_description).toBeUndefined();
+  });
+
+  it("should produce formatted JSON with indentation", () => {
+    const panic = createMockPanic();
+
+    const result = generateContextJsonFile(panic, "test/test.test");
+
+    expect(result).toContain("\n"); // Has newlines (formatted)
+    expect(result).toContain("  "); // Has indentation
   });
 });

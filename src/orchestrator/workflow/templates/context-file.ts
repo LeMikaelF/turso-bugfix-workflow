@@ -4,6 +4,7 @@ import { readFile } from "node:fs/promises";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { PanicFix } from "../../database.js";
+import { generateInitialContextJson, type PanicContextData } from "../../context-json.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -23,23 +24,12 @@ export async function loadContextTemplate(): Promise<string> {
 export function formatContextFile(
   template: string,
   panic: PanicFix,
-  tclTestFile: string
+  _tclTestFile: string
 ): string {
-  const jsonBlock = JSON.stringify(
-    {
-      panic_location: panic.panic_location,
-      panic_message: panic.panic_message,
-      tcl_test_file: tclTestFile,
-    },
-    null,
-    2
-  );
-
   const replacements: Record<string, string> = {
     panic_location: panic.panic_location,
     panic_message: panic.panic_message,
     sql_statements: panic.sql_statements,
-    json_block: jsonBlock,
   };
 
   let content = template;
@@ -59,4 +49,29 @@ export async function generateContextFile(
 ): Promise<string> {
   const template = await loadContextTemplate();
   return formatContextFile(template, panic, tclTestFile);
+}
+
+/**
+ * Generate initial panic_context.json content.
+ */
+export function generateContextJsonData(
+  panic: PanicFix,
+  tclTestFile: string
+): PanicContextData {
+  return generateInitialContextJson(
+    panic.panic_location,
+    panic.panic_message,
+    tclTestFile
+  );
+}
+
+/**
+ * Generate initial panic_context.json content as a string.
+ */
+export function generateContextJsonFile(
+  panic: PanicFix,
+  tclTestFile: string
+): string {
+  const data = generateContextJsonData(panic, tclTestFile);
+  return JSON.stringify(data, null, 2);
 }

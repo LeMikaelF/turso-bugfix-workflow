@@ -23,7 +23,8 @@ panic-fix-workflow/
 │   │   ├── ipc-server.ts         # HTTP server for timeout tracking
 │   │   ├── git.ts                # Git operations (squash, etc.)
 │   │   ├── pr.ts                 # GitHub PR creation (via gh CLI)
-│   │   ├── context-parser.ts     # Parse panic_context.md JSON block
+│   │   ├── context-parser.ts     # Validate panic_context.json data
+│   │   ├── context-json.ts       # Read/write panic_context.json
 │   │   ├── logger.ts             # Structured logging to DB
 │   │   └── config.ts             # Configuration
 │   └── tools/
@@ -62,7 +63,8 @@ panic-fix-workflow/
 
 7. `src/orchestrator/sandbox.ts` - AgentFS session create/delete
 8. `src/orchestrator/agents.ts` - spawn Claude Code via `agentfs run`
-9. `src/orchestrator/context-parser.ts` - regex extraction of JSON block from panic_context.md
+9. `src/orchestrator/context-parser.ts` - validation of panic_context.json data
+10. `src/orchestrator/context-json.ts` - read/write panic_context.json file
 
 ### Phase 4: Orchestrator - Workflow Engine
 
@@ -97,7 +99,8 @@ panic-fix-workflow/
 | 4  | `src/orchestrator/ipc-server.ts`     | Track sim runtime for timeout exclusion |
 | 5  | `src/orchestrator/sandbox.ts`        | Create/delete AgentFS sessions          |
 | 6  | `src/orchestrator/agents.ts`         | Spawn Claude in sandbox with MCP        |
-| 7  | `src/orchestrator/context-parser.ts` | Extract JSON from markdown              |
+| 7  | `src/orchestrator/context-parser.ts` | Validate panic_context.json data        |
+| 7a | `src/orchestrator/context-json.ts`   | Read/write panic_context.json file      |
 | 8  | `src/orchestrator/git.ts`            | Git branch, squash operations           |
 | 9  | `src/orchestrator/pr.ts`             | Open draft PR via gh CLI                |
 | 10 | `src/orchestrator/workflow.ts`       | State machine orchestration             |

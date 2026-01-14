@@ -12,41 +12,41 @@ flowchart TD
     subgraph REPO_SETUP["🌿 Repo Setup"]
         RS0["Create agentfs session:<br/>agentfs run --session panic-{id}"]
         RS1["Create branch:<br/>fix/panic-{id}"]
-        RS2["Initialize context file:<br/>panic_context.md"]
+        RS2["Initialize context files:<br/>panic_context.md + .json"]
         RS3["Create TCL test with<br/>failing SQL statements"]
         RS4["Launch Claude with MCP:<br/>agentfs serve mcp panic-{id}"]
         RS5{"make test-single<br/>fails with<br/>expected panic?"}
     end
 
     subgraph REPRODUCER["🔬 Reproducer Agent<br/><i>⏱️ 60min timeout (excludes sim runtime)</i>"]
-        R1["Load context from .md file"]
+        R1["Load context from<br/>.md and .json files"]
         R2["Analyze panic pattern<br/>& triggering conditions"]
         R3["Extend simulator to<br/>generate statements"]
         R4{"Simulator<br/>compiles?"}
         R5["Run simulator"]
         R6{"Panic<br/>reproduced?"}
-        R7["🔧 describe-sim-fix:<br/>• failing_seed<br/>• why simulator missed it<br/>• what was added<br/>(auto-updates JSON block)"]
+        R7["🔧 describe-sim-fix:<br/>• failing_seed<br/>• why simulator missed it<br/>• what was added<br/>(updates panic_context.json)"]
         R8["📌 git commit (LLM):<br/>'reproducer: {panic_id}'"]
         RT{{"Timeout?"}}
     end
 
     subgraph FIXER["🔧 Fixer Agent<br/><i>⏱️ 60min timeout</i>"]
-        F1["Load context from .md file"]
+        F1["Load context from<br/>.md and .json files"]
         F2["Analyze root cause"]
         F3["Implement fix"]
         F4{"Fix<br/>compiles?"}
         F4B["📌 git commit (LLM):<br/>'wip: fix compiles'"]
         F5["🔧 validate-fix:<br/>• TCL test passes<br/>• make test passes<br/>• sim 10 runs pass"]
         F6{"Validation<br/>passed?"}
-        F7["🔧 describe-fix:<br/>• bug description<br/>• fix description<br/>• update JSON block in .md file"]
+        F7["🔧 describe-fix:<br/>• bug description<br/>• fix description<br/>(updates panic_context.json)"]
         F8["📌 git commit (LLM):<br/>'fix: {panic_id}'"]
         FT{{"Timeout?"}}
     end
 
     subgraph SHIP["🚀 Ship (Orchestrator)"]
-        S1["Parse JSON block from .md file"]
+        S1["Read panic_context.json"]
         S2{"All required<br/>fields present?"}
-        S3["Delete panic_context.md"]
+        S3["Delete context files<br/>(.md and .json)"]
         S4["Squash commits into single commit"]
         S5["open PR:<br/>• draft PR<br/>• tag reviewer"]
         S6["Update DB:<br/>status = 'pr_open'"]

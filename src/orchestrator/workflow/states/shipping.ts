@@ -1,15 +1,16 @@
 // Shipping state handler - parse context, squash commits, push, create PR
 
 import type { StateHandler, StateResult } from "../types.js";
-import { parseAndValidate } from "../../context-parser.js";
+import { validateRequiredFields, type PanicContextData } from "../../context-parser.js";
 import { squashCommits } from "../../git.js";
 import { createPullRequest } from "../../pr.js";
+import { CONTEXT_JSON_FILE } from "../../context-json.js";
 
 /**
  * Ship the fix:
- * 1. Read and parse panic_context.md
+ * 1. Read and parse panic_context.json
  * 2. Validate all required fields are present
- * 3. Delete panic_context.md (not needed in final commit)
+ * 3. Delete context files (not needed in final commit)
  * 4. Squash all commits into one well-formatted commit
  * 5. Push branch to origin
  * 6. Create draft pull request
@@ -18,24 +19,37 @@ export const handleShipping: StateHandler = async (ctx): Promise<StateResult> =>
   const { logger, panic, sandbox, sessionName, branchName, config } = ctx;
   const panicLocation = panic.panic_location;
 
-  await logger.info(panicLocation, "ship", "Reading panic_context.md");
+  await logger.info(panicLocation, "ship", "Reading panic_context.json");
 
-  // Read context file
-  const catResult = await sandbox.runInSession(sessionName, "cat panic_context.md");
+  // Read JSON context file
+  const catResult = await sandbox.runInSession(sessionName, `cat ${CONTEXT_JSON_FILE}`);
   if (catResult.exitCode !== 0) {
-    await logger.error(panicLocation, "ship", "Failed to read context file", {
+    await logger.error(panicLocation, "ship", "Failed to read context JSON file", {
       stderr: catResult.stderr,
     });
     return {
       nextStatus: "needs_human_review",
-      error: `Failed to read context file: ${catResult.stderr}`,
+      error: `Failed to read context JSON file: ${catResult.stderr}`,
     };
   }
 
-  // Parse and validate context
-  const parseResult = parseAndValidate(catResult.stdout, "ship");
-  if (!parseResult.success || !parseResult.valid || !parseResult.data) {
-    const errors = parseResult.errors.join(", ");
+  // Parse JSON with explicit type assertion
+  let contextData: PanicContextData;
+  try {
+    contextData = JSON.parse(catResult.stdout) as PanicContextData;
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    await logger.error(panicLocation, "ship", "Failed to parse context JSON", { error: message });
+    return {
+      nextStatus: "needs_human_review",
+      error: `Failed to parse context JSON: ${message}`,
+    };
+  }
+
+  // Validate required fields
+  const validationResult = validateRequiredFields(contextData, "ship");
+  if (!validationResult.valid) {
+    const errors = validationResult.errors.join(", ");
     await logger.error(panicLocation, "ship", "Context validation failed", { errors });
     return {
       nextStatus: "needs_human_review",
@@ -43,14 +57,13 @@ export const handleShipping: StateHandler = async (ctx): Promise<StateResult> =>
     };
   }
 
-  const contextData = parseResult.data;
   await logger.info(panicLocation, "ship", "Context validated successfully");
 
-  // Delete context file (not needed in final commit)
-  await logger.info(panicLocation, "ship", "Deleting panic_context.md");
-  const rmResult = await sandbox.runInSession(sessionName, "rm panic_context.md");
+  // Delete context files (not needed in final commit)
+  await logger.info(panicLocation, "ship", "Deleting context files");
+  const rmResult = await sandbox.runInSession(sessionName, `rm -f panic_context.md ${CONTEXT_JSON_FILE}`);
   if (rmResult.exitCode !== 0) {
-    await logger.warn(panicLocation, "ship", "Failed to delete context file", {
+    await logger.warn(panicLocation, "ship", "Failed to delete context files", {
       stderr: rmResult.stderr,
     });
     // Continue anyway - not critical

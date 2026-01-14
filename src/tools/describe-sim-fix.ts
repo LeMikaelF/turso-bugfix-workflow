@@ -1,11 +1,7 @@
 // Describe simulator fix tool for panic-fix-workflow
 // Used by the Reproducer agent to document what changes were made to the simulator
 
-import * as fs from "fs/promises";
-import * as path from "path";
-
-/** Regex to match a JSON code block in markdown */
-const JSON_BLOCK_REGEX = /```json\n([\s\S]*?)\n```/;
+import { updateContextJson } from "../orchestrator/context-json.js";
 
 export interface DescribeSimFixParams {
   failing_seed: number;          // The seed that reproduced the panic
@@ -19,12 +15,12 @@ export interface DescribeSimFixResult {
 }
 
 /**
- * Document simulator fix and update panic_context.md JSON block.
+ * Document simulator fix and update panic_context.json.
  *
  * The Reproducer agent calls this tool after extending the simulator
  * to reproduce a panic. This:
  * 1. Validates the documentation parameters
- * 2. Updates the JSON block in panic_context.md with:
+ * 2. Updates panic_context.json with:
  *    - failing_seed
  *    - why_simulator_missed
  *    - simulator_changes (from what_was_added)
@@ -78,61 +74,10 @@ export async function describeSimFix(params: DescribeSimFixParams): Promise<Desc
     };
   }
 
-  // Read panic_context.md
-  const contextPath = path.join(process.cwd(), "panic_context.md");
-  let content: string;
-  try {
-    content = await fs.readFile(contextPath, "utf-8");
-  } catch (err) {
-    return {
-      success: false,
-      error: `Failed to read panic_context.md: ${err instanceof Error ? err.message : String(err)}`,
-    };
-  }
-
-  // Parse JSON block
-  const match = content.match(JSON_BLOCK_REGEX);
-  if (!match) {
-    return {
-      success: false,
-      error: "No JSON block found in panic_context.md",
-    };
-  }
-
-  let prData: Record<string, unknown>;
-  const jsonContent = match[1];
-  if (!jsonContent) {
-    return {
-      success: false,
-      error: "JSON block in panic_context.md is empty",
-    };
-  }
-  try {
-    prData = JSON.parse(jsonContent);
-  } catch (err) {
-    return {
-      success: false,
-      error: `Failed to parse JSON block in panic_context.md: ${err instanceof Error ? err.message : String(err)}`,
-    };
-  }
-
-  // Update fields
-  prData.failing_seed = params.failing_seed;
-  prData.why_simulator_missed = params.why_simulator_missed;
-  prData.simulator_changes = params.what_was_added;
-
-  // Write back
-  const updatedJson = JSON.stringify(prData, null, 2);
-  const updatedContent = content.replace(JSON_BLOCK_REGEX, "```json\n" + updatedJson + "\n```");
-
-  try {
-    await fs.writeFile(contextPath, updatedContent);
-  } catch (err) {
-    return {
-      success: false,
-      error: `Failed to write panic_context.md: ${err instanceof Error ? err.message : String(err)}`,
-    };
-  }
-
-  return { success: true };
+  // Update panic_context.json using the shared utility
+  return updateContextJson({
+    failing_seed: params.failing_seed,
+    why_simulator_missed: params.why_simulator_missed,
+    simulator_changes: params.what_was_added,
+  });
 }

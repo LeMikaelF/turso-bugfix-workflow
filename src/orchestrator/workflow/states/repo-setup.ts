@@ -1,10 +1,11 @@
-// Repo setup state handler - creates session, branch, TCL test, and panic_context.md
+// Repo setup state handler - creates session, branch, TCL test, panic_context.md, and panic_context.json
 
 import type { StateHandler, StateResult } from "../types.js";
 import { createBranch } from "../../git.js";
 import { toSlug } from "../../encoding.js";
 import { generateTclTest } from "../templates/tcl-test.js";
-import { generateContextFile } from "../templates/context-file.js";
+import { generateContextFile, generateContextJsonFile } from "../templates/context-file.js";
+import { CONTEXT_JSON_FILE } from "../../context-json.js";
 
 /**
  * Escape a string for safe use in a shell heredoc.
@@ -18,8 +19,9 @@ function escapeForHeredoc(str: string): string {
  * Set up the repository for panic fixing:
  * 1. Create a new branch
  * 2. Create TCL test file from SQL statements
- * 3. Create panic_context.md with initial JSON block
- * 4. Commit initial setup
+ * 3. Create panic_context.md (human-readable documentation)
+ * 4. Create panic_context.json (machine-readable data for tools)
+ * 5. Commit initial setup
  */
 export const handleRepoSetup: StateHandler = async (ctx): Promise<StateResult> => {
   const { logger, sandbox, panic, sessionName, branchName } = ctx;
@@ -63,7 +65,7 @@ export const handleRepoSetup: StateHandler = async (ctx): Promise<StateResult> =
 
   await logger.info(panicLocation, "repo_setup", "Creating panic_context.md");
 
-  // Create panic_context.md with initial JSON block
+  // Create panic_context.md (human-readable documentation)
   const contextContent = await generateContextFile(panic, tclTestFile);
   const escapedContextContent = escapeForHeredoc(contextContent);
 
@@ -78,6 +80,26 @@ export const handleRepoSetup: StateHandler = async (ctx): Promise<StateResult> =
     return {
       nextStatus: "needs_human_review",
       error: `Failed to create context file: ${writeContextResult.stderr}`,
+    };
+  }
+
+  await logger.info(panicLocation, "repo_setup", "Creating panic_context.json");
+
+  // Create panic_context.json (machine-readable data for tools)
+  const contextJsonContent = generateContextJsonFile(panic, tclTestFile);
+  const escapedJsonContent = escapeForHeredoc(contextJsonContent);
+
+  const writeJsonResult = await sandbox.runInSession(
+    sessionName,
+    `cat > ${CONTEXT_JSON_FILE} << 'ENDJSON'\n${escapedJsonContent}\nENDJSON`
+  );
+  if (writeJsonResult.exitCode !== 0) {
+    await logger.error(panicLocation, "repo_setup", "Failed to create JSON context file", {
+      stderr: writeJsonResult.stderr,
+    });
+    return {
+      nextStatus: "needs_human_review",
+      error: `Failed to create JSON context file: ${writeJsonResult.stderr}`,
     };
   }
 

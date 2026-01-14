@@ -18,11 +18,3 @@
 ## Fixer Notes
 
 <!-- Fixer agent writes analysis here -->
-
----
-
-## PR Data (Machine Readable)
-
-```json
-{{json_block}}
-```

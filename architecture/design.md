@@ -37,8 +37,8 @@ For each panic, the system:
 3. Runs a **Fixer Agent** to fix the bug and validate the fix
 4. Opens a draft PR with the fix
 
-All agents are Claude Code instances running in sandboxes, communicating through a shared context file (
-`panic_context.md`) and MCP tools.
+All agents are Claude Code instances running in sandboxes, communicating through shared context files
+(`panic_context.md` for human-readable notes and `panic_context.json` for machine-readable data) and MCP tools.
 
 ---
 
@@ -218,7 +218,8 @@ orchestrator/
 │   ├── ipc-server.ts         # HTTP server for timeout tracking
 │   ├── git.ts                # Git operations (squash, etc.)
 │   ├── pr.ts                 # GitHub PR creation
-│   ├── context-parser.ts     # Parse panic_context.md JSON block
+│   ├── context-parser.ts     # Validate panic_context.json data
+│   ├── context-json.ts       # Read/write panic_context.json
 │   ├── logger.ts             # Structured logging to DB
 │   ├── config.ts             # Configuration
 │   └── encoding.ts              # toSlug(), toUrlSafe() helpers
@@ -327,7 +328,7 @@ async function runSimulator(params: RunSimulatorParams): Promise<RunSimulatorRes
 
 #### Tool: `describe-sim-fix`
 
-Documents simulator changes and updates the JSON block in `panic_context.md`.
+Documents simulator changes and updates `panic_context.json`.
 
 ```typescript
 interface DescribeSimFixParams {
@@ -359,33 +360,26 @@ async function describeSimFix(params: DescribeSimFixParams): Promise<DescribeSim
         return {success: false, error: "Field what_was_added cannot be empty"};
     }
 
-    // Read and parse panic_context.md
-    const content = await fs.readFile("panic_context.md", "utf-8");
-    const jsonBlockRegex = /```json\n([\s\S]*?)\n```/;
-    const match = content.match(jsonBlockRegex);
-    if (!match) {
-        return {success: false, error: "No JSON block found in panic_context.md"};
-    }
-
-    const prData = JSON.parse(match[1]);
+    // Read panic_context.json
+    const contextPath = "panic_context.json";
+    const content = await fs.readFile(contextPath, "utf-8");
+    const data = JSON.parse(content);
 
     // Update fields
-    prData.failing_seed = params.failing_seed;
-    prData.why_simulator_missed = params.why_simulator_missed;
-    prData.simulator_changes = params.what_was_added;
+    data.failing_seed = params.failing_seed;
+    data.why_simulator_missed = params.why_simulator_missed;
+    data.simulator_changes = params.what_was_added;
 
     // Write back
-    const updatedContent = content.replace(
-        jsonBlockRegex,
-        "```json\n" + JSON.stringify(prData, null, 2) + "\n```"
-    );
-    await fs.writeFile("panic_context.md", updatedContent);
+    await fs.writeFile(contextPath, JSON.stringify(data, null, 2));
 
     return {success: true};
 }
 ```
 
 #### Tool: `describe-fix`
+
+Documents the bug fix and updates `panic_context.json`.
 
 ```typescript
 interface DescribeFixParams {
@@ -395,10 +389,10 @@ interface DescribeFixParams {
 
 interface DescribeFixResult {
     success: boolean;
-    error?: string;  // Descriptive error message when validation fails
+    error?: string;  // Descriptive error message when validation or file update fails
 }
 
-function describeFix(params: DescribeFixParams): DescribeFixResult {
+async function describeFix(params: DescribeFixParams): Promise<DescribeFixResult> {
     // Validate bug_description: must be a non-empty string
     if (params.bug_description === undefined ||
         params.bug_description === null ||
@@ -418,6 +412,18 @@ function describeFix(params: DescribeFixParams): DescribeFixResult {
     if (params.fix_description.trim().length === 0) {
         return {success: false, error: "Field fix_description cannot be empty"};
     }
+
+    // Read panic_context.json
+    const contextPath = "panic_context.json";
+    const content = await fs.readFile(contextPath, "utf-8");
+    const data = JSON.parse(content);
+
+    // Update fields
+    data.bug_description = params.bug_description;
+    data.fix_description = params.fix_description;
+
+    // Write back
+    await fs.writeFile(contextPath, JSON.stringify(data, null, 2));
 
     return {success: true};
 }
@@ -512,13 +518,12 @@ generate SQL statements that trigger a specific panic.
 
 ## Context
 
-Read the file `panic_context.md` in the repository root. It contains:
+Read the context files in the repository root:
 
-- The panic location and message
-- The SQL statements that reproduce the panic
-- A JSON block (updated automatically by `describe-sim-fix`)
+- `panic_context.md` - Human-readable documentation (panic location, message, SQL statements)
+- `panic_context.json` - Machine-readable data (updated automatically by tools)
 
-Another agent (the Fixer) will use this file after you're done, so keep it well-organized.
+Another agent (the Fixer) will use these files after you're done, so keep `panic_context.md` well-organized.
 
 ## Your Task
 
@@ -526,13 +531,13 @@ Another agent (the Fixer) will use this file after you're done, so keep it well-
 2. **Extend the simulator** to generate similar statements
 3. **Run the simulator** using the `run-simulator` tool until the panic is reproduced
 4. **Call `describe-sim-fix`** with the failing seed and documentation
-   - This automatically updates the JSON block in `panic_context.md`
+   - This automatically updates `panic_context.json`
 5. **Commit your changes** with message: `reproducer: {panic_location}`
 
 ## Tools Available
 
 - `run-simulator`: Run the simulator with an optional seed
-- `describe-sim-fix`: Document your simulator changes and update JSON block
+- `describe-sim-fix`: Document your simulator changes (updates `panic_context.json`)
 
 ## Important
 
@@ -552,12 +557,10 @@ Reproducer Agent.
 
 ## Context
 
-Read the file `panic_context.md` in the repository root. It contains:
+Read the context files in the repository root:
 
-- The panic location and message
-- The SQL statements that reproduce the panic
-- The failing simulator seed
-- Information from the Reproducer about the simulator changes
+- `panic_context.md` - Human-readable documentation (panic location, message, SQL statements, Reproducer notes)
+- `panic_context.json` - Machine-readable data (failing_seed, simulator_changes, etc.)
 
 ## Your Task
 
@@ -568,15 +571,13 @@ Read the file `panic_context.md` in the repository root. It contains:
 5. **Call `describe-fix`** after validation passes to document:
     - What the bug was
     - How you fixed it
-6. **Update the JSON block** in `panic_context.md` with:
-    - `bug_description`
-    - `fix_description`
-7. **Commit your changes** with message: `fix: {panic_location}`
+    - This automatically updates `panic_context.json`
+6. **Commit your changes** with message: `fix: {panic_location}`
 
 ## Tools Available
 
 - `validate-fix`: Run TCL test, then full test suite + simulator 10x
-- `describe-fix`: Document your fix
+- `describe-fix`: Document your fix (updates `panic_context.json`)
 
 ## Important
 
@@ -891,6 +892,11 @@ async function processNextPanic(): Promise<void> {
 
 ## Context File Format
 
+Context is stored in two separate files:
+
+- `panic_context.md` - Human-readable documentation for agents
+- `panic_context.json` - Machine-readable data for tools and orchestrator
+
 ### `panic_context.md`
 
 ```markdown
@@ -916,21 +922,20 @@ SELECT * FROM t1 WHERE a = 1;
 ## Fixer Notes
 
 <!-- Fixer agent writes analysis here -->
+```
 
----
-
-## PR Data (Machine Readable)
+### `panic_context.json`
 
 ```json
 {
   "panic_location": "src/vdbe.c:1234",
   "panic_message": "assertion failed: pCur->isValid",
+  "tcl_test_file": "test/panic_abc123.test",
   "failing_seed": 42,
   "why_simulator_missed": "...",
   "simulator_changes": "...",
   "bug_description": "...",
-  "fix_description": "...",
-  "tcl_test_file": "test/panic_abc123.test"
+  "fix_description": "..."
 }
 ```
 
@@ -940,15 +945,14 @@ SELECT * FROM t1 WHERE a = 1;
 |------------------------|---------------------------------|
 | `panic_location`       | Repo Setup                      |
 | `panic_message`        | Repo Setup                      |
-| `failing_seed`         | Reproducer                      |
+| `tcl_test_file`        | Repo Setup                      |
+| `failing_seed`         | Reproducer (`describe-sim-fix`) |
 | `why_simulator_missed` | Reproducer (`describe-sim-fix`) |
 | `simulator_changes`    | Reproducer (`describe-sim-fix`) |
 | `bug_description`      | Fixer (`describe-fix`)          |
 | `fix_description`      | Fixer (`describe-fix`)          |
-| `tcl_test_file`        | Repo Setup                      |
 
-The orchestrator extracts the first JSON code block in the file via regex and validates all fields before opening the
-PR.
+The orchestrator reads `panic_context.json` directly and validates all fields before opening the PR.
 
 ---
 
@@ -956,16 +960,15 @@ PR.
 
 ```typescript
 async function ship(panicLocation: string, sessionName: string): Promise<void> {
-    // 1. Parse context file
-    const contextPath = `panic_context.md`;
-    const content = await runInSession(sessionName, `cat ${contextPath}`);
-    const prData = extractJsonBlock(content.stdout);
+    // 1. Read and parse JSON context file
+    const jsonContent = await runInSession(sessionName, `cat panic_context.json`);
+    const prData = JSON.parse(jsonContent.stdout);
 
     // 2. Validate required fields
     const required = [
-        'panic_location', 'panic_message', 'failing_seed',
-        'why_simulator_missed', 'simulator_changes', 'bug_description',
-        'fix_description', 'tcl_test_file'
+        'panic_location', 'panic_message', 'tcl_test_file',
+        'failing_seed', 'why_simulator_missed', 'simulator_changes',
+        'bug_description', 'fix_description'
     ];
     for (const field of required) {
         if (!prData[field]) {
@@ -973,8 +976,8 @@ async function ship(panicLocation: string, sessionName: string): Promise<void> {
         }
     }
 
-    // 3. Delete context file
-    await runInSession(sessionName, `rm ${contextPath}`);
+    // 3. Delete context files
+    await runInSession(sessionName, `rm -f panic_context.md panic_context.json`);
 
     // 4. Squash commits
     await runInSession(sessionName, `git reset --soft $(git merge-base HEAD main) && \

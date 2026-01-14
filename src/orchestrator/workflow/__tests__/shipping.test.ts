@@ -13,10 +13,11 @@ import {
   successResult,
   failureResult,
 } from "./test-utils.js";
+import { CONTEXT_JSON_FILE } from "../../context-json.js";
 
 // Mock dependencies
 vi.mock("../../context-parser.js", () => ({
-  parseAndValidate: vi.fn(),
+  validateRequiredFields: vi.fn(),
 }));
 
 vi.mock("../../git.js", () => ({
@@ -27,11 +28,11 @@ vi.mock("../../pr.js", () => ({
   createPullRequest: vi.fn(),
 }));
 
-import { parseAndValidate } from "../../context-parser.js";
+import { validateRequiredFields } from "../../context-parser.js";
 import { squashCommits } from "../../git.js";
 import { createPullRequest } from "../../pr.js";
 
-const mockParseAndValidate = vi.mocked(parseAndValidate);
+const mockValidateRequiredFields = vi.mocked(validateRequiredFields);
 const mockSquashCommits = vi.mocked(squashCommits);
 const mockCreatePullRequest = vi.mocked(createPullRequest);
 
@@ -56,16 +57,14 @@ describe("handleShipping", () => {
 
     // Default: all operations succeed
     mockRunInSession
-      .mockResolvedValueOnce(successResult("context file content")) // cat panic_context.md
-      .mockResolvedValueOnce(successResult()) // rm panic_context.md
+      .mockResolvedValueOnce(successResult(JSON.stringify(validContextData))) // cat panic_context.json
+      .mockResolvedValueOnce(successResult()) // rm context files
       .mockResolvedValueOnce(successResult()) // git add -A
       .mockResolvedValueOnce(successResult()); // git push
 
-    mockParseAndValidate.mockReturnValue({
-      success: true,
+    mockValidateRequiredFields.mockReturnValue({
       valid: true,
       errors: [],
-      data: validContextData,
     });
 
     mockSquashCommits.mockResolvedValue({ success: true });
@@ -93,22 +92,25 @@ describe("handleShipping", () => {
       expect(result.error).toBeUndefined();
     });
 
-    it("should read panic_context.md from sandbox", async () => {
+    it("should read panic_context.json from sandbox", async () => {
       await handleShipping(ctx);
 
-      expect(mockRunInSession).toHaveBeenCalledWith("test-session", "cat panic_context.md");
+      expect(mockRunInSession).toHaveBeenCalledWith("test-session", `cat ${CONTEXT_JSON_FILE}`);
     });
 
-    it("should parse and validate context content", async () => {
+    it("should validate context data with ship phase", async () => {
       await handleShipping(ctx);
 
-      expect(mockParseAndValidate).toHaveBeenCalledWith("context file content", "ship");
+      expect(mockValidateRequiredFields).toHaveBeenCalledWith(validContextData, "ship");
     });
 
-    it("should delete panic_context.md after reading", async () => {
+    it("should delete both context files after reading", async () => {
       await handleShipping(ctx);
 
-      expect(mockRunInSession).toHaveBeenCalledWith("test-session", "rm panic_context.md");
+      expect(mockRunInSession).toHaveBeenCalledWith(
+        "test-session",
+        `rm -f panic_context.md ${CONTEXT_JSON_FILE}`
+      );
     });
 
     it("should squash commits with context data", async () => {
@@ -141,35 +143,31 @@ describe("handleShipping", () => {
   });
 
   describe("error handling", () => {
-    it("should return needs_human_review when context file is missing", async () => {
+    it("should return needs_human_review when context JSON file is missing", async () => {
       mockRunInSession.mockReset();
       mockRunInSession.mockResolvedValueOnce(failureResult("No such file"));
 
       const result = await handleShipping(ctx);
 
       expect(result.nextStatus).toBe("needs_human_review");
-      expect(result.error).toContain("Failed to read context file");
+      expect(result.error).toContain("Failed to read context JSON file");
     });
 
-    it("should return needs_human_review when context parsing fails", async () => {
-      mockParseAndValidate.mockReturnValue({
-        success: false,
-        valid: false,
-        errors: ["Invalid JSON"],
-      } as ReturnType<typeof parseAndValidate>);
+    it("should return needs_human_review when context JSON is malformed", async () => {
+      mockRunInSession.mockReset();
+      mockRunInSession.mockResolvedValueOnce(successResult("{invalid json}"));
 
       const result = await handleShipping(ctx);
 
       expect(result.nextStatus).toBe("needs_human_review");
-      expect(result.error).toContain("Context validation failed");
+      expect(result.error).toContain("Failed to parse context JSON");
     });
 
     it("should return needs_human_review when context validation fails", async () => {
-      mockParseAndValidate.mockReturnValue({
-        success: true,
+      mockValidateRequiredFields.mockReturnValue({
         valid: false,
         errors: ["Missing required field: bug_description"],
-      } as ReturnType<typeof parseAndValidate>);
+      });
 
       const result = await handleShipping(ctx);
 
@@ -181,7 +179,7 @@ describe("handleShipping", () => {
     it("should continue when context file deletion fails (non-critical)", async () => {
       mockRunInSession.mockReset();
       mockRunInSession
-        .mockResolvedValueOnce(successResult("content")) // cat
+        .mockResolvedValueOnce(successResult(JSON.stringify(validContextData))) // cat
         .mockResolvedValueOnce(failureResult("permission denied")) // rm fails
         .mockResolvedValueOnce(successResult()) // git add
         .mockResolvedValueOnce(successResult()); // git push
@@ -192,7 +190,7 @@ describe("handleShipping", () => {
       expect(ctx.logger.warn).toHaveBeenCalledWith(
         "src/test.c:100",
         "ship",
-        "Failed to delete context file",
+        "Failed to delete context files",
         expect.any(Object)
       );
     });
@@ -212,7 +210,7 @@ describe("handleShipping", () => {
     it("should return needs_human_review when git push fails", async () => {
       mockRunInSession.mockReset();
       mockRunInSession
-        .mockResolvedValueOnce(successResult("content")) // cat
+        .mockResolvedValueOnce(successResult(JSON.stringify(validContextData))) // cat
         .mockResolvedValueOnce(successResult()) // rm
         .mockResolvedValueOnce(successResult()) // git add
         .mockResolvedValueOnce(failureResult("rejected: non-fast-forward")); // push fails
@@ -242,7 +240,7 @@ describe("handleShipping", () => {
       expect(ctx.logger.info).toHaveBeenCalledWith(
         "src/test.c:100",
         "ship",
-        "Reading panic_context.md"
+        "Reading panic_context.json"
       );
       expect(ctx.logger.info).toHaveBeenCalledWith(
         "src/test.c:100",
@@ -252,7 +250,7 @@ describe("handleShipping", () => {
       expect(ctx.logger.info).toHaveBeenCalledWith(
         "src/test.c:100",
         "ship",
-        "Deleting panic_context.md"
+        "Deleting context files"
       );
       expect(ctx.logger.info).toHaveBeenCalledWith(
         "src/test.c:100",

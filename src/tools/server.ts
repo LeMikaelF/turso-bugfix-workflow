@@ -64,7 +64,7 @@ export function createMcpServer(): McpServer {
   // Register describe-sim-fix tool
   server.tool(
     "describe-sim-fix",
-    "Document simulator changes made by the Reproducer agent and update the JSON block in panic_context.md. Call this after extending the simulator to reproduce a panic.",
+    "Document simulator changes made by the Reproducer agent and update panic_context.json. Call this after extending the simulator to reproduce a panic.",
     describeSimFixSchema,
     async (params): Promise<{ content: Array<{ type: "text"; text: string }> }> => {
       const result: DescribeSimFixResult = await describeSimFix({
@@ -87,10 +87,10 @@ export function createMcpServer(): McpServer {
   // Register describe-fix tool
   server.tool(
     "describe-fix",
-    "Document bug fix made by the Fixer agent. Call this after fixing a panic and validating the fix.",
+    "Document bug fix made by the Fixer agent and update panic_context.json. Call this after fixing a panic and validating the fix.",
     describeFixSchema,
     async (params): Promise<{ content: Array<{ type: "text"; text: string }> }> => {
-      const result: DescribeFixResult = describeFix({
+      const result: DescribeFixResult = await describeFix({
         bug_description: params.bug_description,
         fix_description: params.fix_description,
       });

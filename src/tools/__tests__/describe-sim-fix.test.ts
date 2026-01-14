@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { describeSimFix } from "../describe-sim-fix.js";
 import * as fs from "fs/promises";
+import { CONTEXT_JSON_FILE } from "../../orchestrator/context-json.js";
 
 // Mock fs/promises
 vi.mock("fs/promises");
@@ -173,7 +174,7 @@ describe("describe-sim-fix", () => {
   });
 
   describe("file operations", () => {
-    it("should fail when panic_context.md does not exist", async () => {
+    it("should fail when panic_context.json does not exist", async () => {
       mockFs.readFile.mockRejectedValue(new Error("ENOENT: no such file or directory"));
 
       const result = await describeSimFix({
@@ -183,11 +184,11 @@ describe("describe-sim-fix", () => {
       });
 
       expect(result.success).toBe(false);
-      expect(result.error).toContain("Failed to read panic_context.md");
+      expect(result.error).toContain(`Failed to read ${CONTEXT_JSON_FILE}`);
     });
 
-    it("should fail when panic_context.md has no JSON block", async () => {
-      mockFs.readFile.mockResolvedValue("# Panic Context\n\nNo JSON block here.");
+    it("should fail when JSON is malformed", async () => {
+      mockFs.readFile.mockResolvedValue("{invalid json}");
 
       const result = await describeSimFix({
         failing_seed: 42,
@@ -196,35 +197,16 @@ describe("describe-sim-fix", () => {
       });
 
       expect(result.success).toBe(false);
-      expect(result.error).toBe("No JSON block found in panic_context.md");
+      expect(result.error).toContain(`Invalid JSON in ${CONTEXT_JSON_FILE}`);
     });
 
-    it("should fail when JSON block is malformed", async () => {
-      mockFs.readFile.mockResolvedValue("# Panic\n\n```json\n{invalid json}\n```");
-
-      const result = await describeSimFix({
-        failing_seed: 42,
-        why_simulator_missed: "The simulator didn't generate UPSERT statements",
-        what_was_added: "Added UPSERT generation",
-      });
-
-      expect(result.success).toBe(false);
-      expect(result.error).toContain("Failed to parse JSON block");
-    });
-
-    it("should succeed and update JSON block with all fields", async () => {
-      const originalContent = `# Panic Context
-
-## PR Data
-
-\`\`\`json
-{
-  "panic_location": "src/vdbe.c:1234",
-  "panic_message": "assertion failed"
-}
-\`\`\`
-`;
-      mockFs.readFile.mockResolvedValue(originalContent);
+    it("should succeed and update JSON with all fields", async () => {
+      const originalData = {
+        panic_location: "src/vdbe.c:1234",
+        panic_message: "assertion failed",
+        tcl_test_file: "test/panic.test",
+      };
+      mockFs.readFile.mockResolvedValue(JSON.stringify(originalData));
       mockFs.writeFile.mockResolvedValue(undefined);
 
       const result = await describeSimFix({
@@ -241,12 +223,7 @@ describe("describe-sim-fix", () => {
       const writeCall = mockFs.writeFile.mock.calls[0];
       if (!writeCall) throw new Error("writeFile not called");
       const writtenContent = writeCall[1] as string;
-
-      // Parse the JSON from the written content
-      const jsonMatch = writtenContent.match(/```json\n([\s\S]*?)\n```/);
-      expect(jsonMatch).not.toBeNull();
-      expect(jsonMatch![1]).toBeDefined();
-      const writtenJson = JSON.parse(jsonMatch![1] as string);
+      const writtenJson = JSON.parse(writtenContent);
 
       expect(writtenJson.failing_seed).toBe(42);
       expect(writtenJson.why_simulator_missed).toBe("The simulator didn't generate UPSERT statements");
@@ -254,10 +231,11 @@ describe("describe-sim-fix", () => {
       // Original fields should be preserved
       expect(writtenJson.panic_location).toBe("src/vdbe.c:1234");
       expect(writtenJson.panic_message).toBe("assertion failed");
+      expect(writtenJson.tcl_test_file).toBe("test/panic.test");
     });
 
     it("should fail when writeFile fails", async () => {
-      mockFs.readFile.mockResolvedValue(`\`\`\`json\n{"panic_location": "test"}\n\`\`\``);
+      mockFs.readFile.mockResolvedValue('{"panic_location": "test", "panic_message": "test", "tcl_test_file": "test"}');
       mockFs.writeFile.mockRejectedValue(new Error("Permission denied"));
 
       const result = await describeSimFix({
@@ -267,11 +245,11 @@ describe("describe-sim-fix", () => {
       });
 
       expect(result.success).toBe(false);
-      expect(result.error).toContain("Failed to write panic_context.md");
+      expect(result.error).toContain(`Failed to write ${CONTEXT_JSON_FILE}`);
     });
 
     it("should handle unicode and special characters in strings", async () => {
-      mockFs.readFile.mockResolvedValue(`\`\`\`json\n{"panic_location": "test"}\n\`\`\``);
+      mockFs.readFile.mockResolvedValue('{"panic_location": "test", "panic_message": "test", "tcl_test_file": "test"}');
       mockFs.writeFile.mockResolvedValue(undefined);
 
       const result = await describeSimFix({
@@ -286,28 +264,20 @@ describe("describe-sim-fix", () => {
       const writeCall = mockFs.writeFile.mock.calls[0];
       if (!writeCall) throw new Error("writeFile not called");
       const writtenContent = writeCall[1] as string;
-      const jsonMatch = writtenContent.match(/```json\n([\s\S]*?)\n```/);
-      expect(jsonMatch).not.toBeNull();
-      const parsed = JSON.parse(jsonMatch![1] as string);
+      const parsed = JSON.parse(writtenContent);
       expect(parsed.why_simulator_missed).toContain("你好");
       expect(parsed.why_simulator_missed).toContain("🚀");
       expect(parsed.simulator_changes).toContain('"hello"');
     });
 
-    it("should update the first JSON block when multiple exist", async () => {
-      const contentWithMultipleBlocks = `# Panic Context
-
-\`\`\`json
-{"panic_location": "src/vdbe.c:1234", "panic_message": "first block"}
-\`\`\`
-
-Some text in between...
-
-\`\`\`json
-{"other": "second block data"}
-\`\`\`
-`;
-      mockFs.readFile.mockResolvedValue(contentWithMultipleBlocks);
+    it("should preserve all existing fields when updating", async () => {
+      const existingData = {
+        panic_location: "src/vdbe.c:1234",
+        panic_message: "assertion failed",
+        tcl_test_file: "test/panic.test",
+        extra_field: "should be preserved",
+      };
+      mockFs.readFile.mockResolvedValue(JSON.stringify(existingData));
       mockFs.writeFile.mockResolvedValue(undefined);
 
       const result = await describeSimFix({
@@ -318,20 +288,16 @@ Some text in between...
 
       expect(result.success).toBe(true);
 
-      // Verify only the first block was updated
       const writeCall = mockFs.writeFile.mock.calls[0];
       if (!writeCall) throw new Error("writeFile not called");
       const writtenContent = writeCall[1] as string;
+      const parsed = JSON.parse(writtenContent);
 
-      // The second block should remain unchanged
-      expect(writtenContent).toContain('"other": "second block data"');
-
-      // The first block should have the updated fields
-      const firstJsonMatch = writtenContent.match(/```json\n([\s\S]*?)\n```/);
-      expect(firstJsonMatch).not.toBeNull();
-      const firstBlockJson = JSON.parse(firstJsonMatch![1] as string);
-      expect(firstBlockJson.failing_seed).toBe(42);
-      expect(firstBlockJson.panic_location).toBe("src/vdbe.c:1234");
+      // All original fields preserved
+      expect(parsed.panic_location).toBe("src/vdbe.c:1234");
+      expect(parsed.extra_field).toBe("should be preserved");
+      // New fields added
+      expect(parsed.failing_seed).toBe(42);
     });
   });
 });

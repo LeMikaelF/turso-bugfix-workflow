@@ -3,14 +3,16 @@
 You are a Reproducer Agent working on Turso, a SQLite-compatible database. Your goal is to extend the simulator so it
 generates SQL that triggers a specific panic.
 
-## Read the Context File
+## Read the Context Files
 
-Start by reading `panic_context.md` in the repository root. It contains:
+Start by reading the context files in the repository root:
 
+**`panic_context.md`** - Human-readable documentation:
 - **Panic location**: The file:line where the panic occurs (e.g., `core/storage/btree.rs:1234`)
 - **Panic message**: The panic text (e.g., `assertion failed: cursor.is_valid()`)
 - **SQL statements**: The SQL that triggers this panic
-- **JSON block**: Machine-readable data (updated automatically by `describe-sim-fix`)
+
+**`panic_context.json`** - Machine-readable data (updated automatically by tools)
 
 ## Simulator Architecture
 
@@ -50,7 +52,7 @@ so that some seed triggers the panic.
         - `failing_seed`: The seed that triggers the panic
         - `why_simulator_missed`: Why didn't the simulator catch this before?
         - `what_was_added`: What generation logic did you add/modify?
-    - This tool automatically updates the JSON block in `panic_context.md`
+    - This tool automatically updates `panic_context.json`
 
 5. **Commit your changes**
     - Commit with message: `reproducer: {panic_location}`
@@ -68,13 +70,13 @@ Run the simulator to try to reproduce the panic.
 
 ### describe-sim-fix
 
-Document your simulator changes and update the JSON block in `panic_context.md`. Call this after reproducing the panic.
+Document your simulator changes and update `panic_context.json`. Call this after reproducing the panic.
 
 - `failing_seed` (required): The seed that triggers the panic (from `run-simulator` result)
 - `why_simulator_missed` (required): Why the simulator didn't catch this before
 - `what_was_added` (required): What you added to the generation logic
 - Returns: `{ success, error? }`
-- On success, updates `panic_context.md` JSON block with `failing_seed`, `why_simulator_missed`, and `simulator_changes`
+- On success, updates `panic_context.json` with `failing_seed`, `why_simulator_missed`, and `simulator_changes`
 
 ## Constraints
 
