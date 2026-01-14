@@ -131,6 +131,11 @@ export async function createPullRequest(
     return "https://github.com/dry-run/pr/0";
   }
 
+  // Fail-safe: prevent real PR creation in tests (after dryRun check)
+  if (process.env.VITEST || process.env.NODE_ENV === "test") {
+    throw new Error("createPullRequest called in test environment - use dryRun or mock this function");
+  }
+
   const result = await sandbox.runInSession(sessionName, command);
 
   if (result.exitCode !== 0) {

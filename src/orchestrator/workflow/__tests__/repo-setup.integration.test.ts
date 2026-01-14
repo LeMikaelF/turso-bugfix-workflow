@@ -87,6 +87,7 @@ function createMockConfig() {
     prReviewer: "@test",
     prLabels: [],
     ipcPort: 9100,
+    dryRun: false,
   };
 }
 

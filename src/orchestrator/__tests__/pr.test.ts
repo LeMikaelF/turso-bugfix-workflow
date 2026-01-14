@@ -162,11 +162,17 @@ https://github.com/tursodatabase/turso/pull/456`;
   });
 
   describe("createPullRequest", () => {
+    // Note: These tests use dryRun mode to verify command format
+    // The production code has a guard that prevents real PR creation in test environments
     const config = {
       prReviewer: "@LeMikaelF",
       prLabels: ["automated", "panic-fix"],
-      dryRun: false,
+      dryRun: true,
     };
+
+    beforeEach(() => {
+      (writeFile as ReturnType<typeof vi.fn>).mockResolvedValue(undefined);
+    });
 
     it("should create PR with correct gh command", async () => {
       (readFile as ReturnType<typeof vi.fn>).mockResolvedValue(sampleTemplate);
@@ -174,7 +180,7 @@ https://github.com/tursodatabase/turso/pull/456`;
         successResult("https://github.com/tursodatabase/turso/pull/123\n")
       );
 
-      const prUrl = await createPullRequest(
+      await createPullRequest(
         {
           sessionName: "test-session",
           contextData: sampleContextData,
@@ -183,14 +189,10 @@ https://github.com/tursodatabase/turso/pull/456`;
         config
       );
 
-      expect(prUrl).toBe("https://github.com/tursodatabase/turso/pull/123");
-
-      // Verify gh command was called
-      const runInSession = sandbox.runInSession as ReturnType<typeof vi.fn>;
-      expect(runInSession).toHaveBeenCalledTimes(1);
-
-      const calls = runInSession.mock.calls as Array<[string, string]>;
-      const command = calls[0]![1];
+      // Verify gh command via dryRun command file
+      const writeFileMock = writeFile as ReturnType<typeof vi.fn>;
+      const commandCall = writeFileMock.mock.calls[1] as [string, string, string];
+      const command = commandCall[1];
       expect(command).toContain("gh pr create");
       expect(command).toContain("--title");
       expect(command).toContain("--body");
@@ -200,7 +202,7 @@ https://github.com/tursodatabase/turso/pull/456`;
       expect(command).toContain('--label "panic-fix"');
     });
 
-    it("should throw error when gh command fails", async () => {
+    it("should throw test guard error when dryRun is false", async () => {
       (readFile as ReturnType<typeof vi.fn>).mockResolvedValue(sampleTemplate);
       const sandbox = createMockSandbox(async () =>
         failureResult("gh: authentication required")
@@ -213,27 +215,9 @@ https://github.com/tursodatabase/turso/pull/456`;
             contextData: sampleContextData,
           },
           sandbox,
-          config
+          { ...config, dryRun: false }
         )
-      ).rejects.toThrow("Failed to create PR: gh: authentication required");
-    });
-
-    it("should throw error when no PR URL in output", async () => {
-      (readFile as ReturnType<typeof vi.fn>).mockResolvedValue(sampleTemplate);
-      const sandbox = createMockSandbox(async () =>
-        successResult("PR created but no URL")
-      );
-
-      await expect(
-        createPullRequest(
-          {
-            sessionName: "test-session",
-            contextData: sampleContextData,
-          },
-          sandbox,
-          config
-        )
-      ).rejects.toThrow("Failed to extract PR URL");
+      ).rejects.toThrow("createPullRequest called in test environment");
     });
 
     it("should escape single quotes in title", async () => {
@@ -256,9 +240,9 @@ https://github.com/tursodatabase/turso/pull/456`;
         config
       );
 
-      const runInSession = sandbox.runInSession as ReturnType<typeof vi.fn>;
-      const calls = runInSession.mock.calls as Array<[string, string]>;
-      const command = calls[0]![1];
+      const writeFileMock = writeFile as ReturnType<typeof vi.fn>;
+      const commandCall = writeFileMock.mock.calls[1] as [string, string, string];
+      const command = commandCall[1];
       expect(command).toContain("can'\\''t");
     });
 
@@ -277,9 +261,9 @@ https://github.com/tursodatabase/turso/pull/456`;
         { ...config, prLabels: [] }
       );
 
-      const runInSession = sandbox.runInSession as ReturnType<typeof vi.fn>;
-      const calls = runInSession.mock.calls as Array<[string, string]>;
-      const command = calls[0]![1];
+      const writeFileMock = writeFile as ReturnType<typeof vi.fn>;
+      const commandCall = writeFileMock.mock.calls[1] as [string, string, string];
+      const command = commandCall[1];
       expect(command).not.toContain("--label");
     });
   });
