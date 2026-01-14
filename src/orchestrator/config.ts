@@ -1,6 +1,8 @@
-// Configuration loading from environment variables
+// Configuration loading from properties.json file
 
-//TODO change this to instead load properties from a json file "properties.json"
+import { readFileSync, existsSync } from "fs";
+import { join, dirname } from "path";
+import { fileURLToPath } from "url";
 
 export interface Config {
   // Database
@@ -27,49 +29,70 @@ export interface Config {
   ipcPort: number;
 }
 
-function requireEnv(name: string): string {
-  const value = process.env[name];
+interface PropertiesFile {
+  tursoUrl?: string;
+  tursoAuthToken?: string;
+  baseRepoPath?: string;
+  maxParallelPanics?: number;
+  reproducerTimeoutMs?: number;
+  fixerTimeoutMs?: number;
+  githubToken?: string;
+  githubRepo?: string;
+  prReviewer?: string;
+  prLabels?: string[];
+  ipcPort?: number;
+}
+
+function findPropertiesFile(): string {
+  // Try current working directory first
+  const cwdPath = join(process.cwd(), "properties.json");
+  if (existsSync(cwdPath)) {
+    return cwdPath;
+  }
+
+  // Try relative to this module
+  const __dirname = dirname(fileURLToPath(import.meta.url));
+  const modulePath = join(__dirname, "..", "..", "properties.json");
+  if (existsSync(modulePath)) {
+    return modulePath;
+  }
+
+  throw new Error(
+    "properties.json not found. Please create properties.json in the project root."
+  );
+}
+
+function loadPropertiesFile(): PropertiesFile {
+  const filePath = findPropertiesFile();
+  const content = readFileSync(filePath, "utf-8");
+  return JSON.parse(content) as PropertiesFile;
+}
+
+function requireProperty<T>(
+  key: keyof PropertiesFile,
+  value: T | undefined
+): T {
   if (value === undefined || value === "") {
-    throw new Error(`Required environment variable ${name} is not set`);
+    throw new Error(`Required property "${key}" is not set in properties.json`);
   }
   return value;
 }
 
-function optionalEnv(name: string, defaultValue: string): string {
-  return process.env[name] ?? defaultValue;
-}
-
-function optionalIntEnv(name: string, defaultValue: number): number {
-  const value = process.env[name];
-  if (value === undefined) {
-    return defaultValue;
-  }
-  const parsed = parseInt(value, 10);
-  if (Number.isNaN(parsed)) {
-    throw new Error(`Environment variable ${name} must be a valid integer`);
-  }
-  return parsed;
-}
-
 export function loadConfig(): Config {
+  const props = loadPropertiesFile();
+
   return {
-    tursoUrl: requireEnv("TURSO_URL"),
-    tursoAuthToken: requireEnv("TURSO_AUTH_TOKEN"),
-    baseRepoPath: optionalEnv("BASE_REPO_PATH", "/opt/turso-base"),
-    maxParallelPanics: optionalIntEnv("MAX_PARALLEL", 2),
-    reproducerTimeoutMs: optionalIntEnv(
-      "REPRODUCER_TIMEOUT",
-      60 * 60 * 1000
-    ),
-    fixerTimeoutMs: optionalIntEnv("FIXER_TIMEOUT", 60 * 60 * 1000),
-    githubToken: requireEnv("GITHUB_TOKEN"),
-    githubRepo: optionalEnv("GITHUB_REPO", "tursodatabase/turso"),
-    prReviewer: optionalEnv("PR_REVIEWER", "@LeMikaelF"),
-    prLabels: optionalEnv("PR_LABELS", "")
-      .split(",")
-      .map((s) => s.trim())
-      .filter((s) => s.length > 0),
-    ipcPort: optionalIntEnv("IPC_PORT", 9100),
+    tursoUrl: requireProperty("tursoUrl", props.tursoUrl),
+    tursoAuthToken: requireProperty("tursoAuthToken", props.tursoAuthToken),
+    baseRepoPath: props.baseRepoPath ?? "/opt/turso-base",
+    maxParallelPanics: props.maxParallelPanics ?? 2,
+    reproducerTimeoutMs: props.reproducerTimeoutMs ?? 60 * 60 * 1000,
+    fixerTimeoutMs: props.fixerTimeoutMs ?? 60 * 60 * 1000,
+    githubToken: requireProperty("githubToken", props.githubToken),
+    githubRepo: props.githubRepo ?? "tursodatabase/turso",
+    prReviewer: props.prReviewer ?? "@LeMikaelF",
+    prLabels: props.prLabels ?? [],
+    ipcPort: props.ipcPort ?? 9100,
   };
 }
 
