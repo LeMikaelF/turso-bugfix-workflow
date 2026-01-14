@@ -5,11 +5,23 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { z } from "zod";
 import { runSimulator, type RunSimulatorResult } from "./run-simulator.js";
+import { describeSimFix, type DescribeSimFixResult } from "./describe-sim-fix.js";
+import { describeFix, type DescribeFixResult } from "./describe-fix.js";
 
 // Tool schemas using Zod
 const runSimulatorSchema = {
   seed: z.number().optional().describe("Optional seed for the simulator. If not provided, a random seed is used."),
   timeout_seconds: z.number().optional().describe("Timeout in seconds for the simulator run. Default: 300"),
+};
+
+const describeSimFixSchema = {
+  why_simulator_missed: z.string().describe("Explanation of why the simulator didn't catch this panic before"),
+  what_was_added: z.string().describe("Description of what was added to make the simulator generate the triggering statements"),
+};
+
+const describeFixSchema = {
+  bug_description: z.string().describe("Description of what the bug was (root cause)"),
+  fix_description: z.string().describe("Description of how the bug was fixed"),
 };
 
 /**
@@ -43,9 +55,51 @@ export function createMcpServer(): McpServer {
     }
   );
 
-  // Placeholder for future tools (steps 16-19):
-  // - describe-sim-fix
-  // - describe-fix
+  // Register describe-sim-fix tool
+  server.tool(
+    "describe-sim-fix",
+    "Document simulator changes made by the Reproducer agent. Call this after extending the simulator to reproduce a panic.",
+    describeSimFixSchema,
+    async (params): Promise<{ content: Array<{ type: "text"; text: string }> }> => {
+      const result: DescribeSimFixResult = describeSimFix({
+        why_simulator_missed: params.why_simulator_missed,
+        what_was_added: params.what_was_added,
+      });
+
+      return {
+        content: [
+          {
+            type: "text",
+            text: JSON.stringify(result, null, 2),
+          },
+        ],
+      };
+    }
+  );
+
+  // Register describe-fix tool
+  server.tool(
+    "describe-fix",
+    "Document bug fix made by the Fixer agent. Call this after fixing a panic and validating the fix.",
+    describeFixSchema,
+    async (params): Promise<{ content: Array<{ type: "text"; text: string }> }> => {
+      const result: DescribeFixResult = describeFix({
+        bug_description: params.bug_description,
+        fix_description: params.fix_description,
+      });
+
+      return {
+        content: [
+          {
+            type: "text",
+            text: JSON.stringify(result, null, 2),
+          },
+        ],
+      };
+    }
+  );
+
+  // Placeholder for future tools (steps 18-19):
   // - validate-fix-fast
   // - validate-fix-slow
 

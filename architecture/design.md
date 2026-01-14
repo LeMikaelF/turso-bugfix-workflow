@@ -334,13 +334,30 @@ interface DescribeSimFixParams {
 
 interface DescribeSimFixResult {
     success: boolean;
+    error?: string;  // Descriptive error message when validation fails
 }
 
-async function describeSimFix(params: DescribeSimFixParams): Promise<DescribeSimFixResult> {
-    // Validate inputs
-    if (!params.why_simulator_missed || !params.what_was_added) {
-        return {success: false};
+function describeSimFix(params: DescribeSimFixParams): DescribeSimFixResult {
+    // Validate why_simulator_missed: must be a non-empty string
+    if (params.why_simulator_missed === undefined ||
+        params.why_simulator_missed === null ||
+        typeof params.why_simulator_missed !== "string") {
+        return {success: false, error: "Missing required field: why_simulator_missed"};
     }
+    if (params.why_simulator_missed.trim().length === 0) {
+        return {success: false, error: "Field why_simulator_missed cannot be empty"};
+    }
+
+    // Validate what_was_added: must be a non-empty string
+    if (params.what_was_added === undefined ||
+        params.what_was_added === null ||
+        typeof params.what_was_added !== "string") {
+        return {success: false, error: "Missing required field: what_was_added"};
+    }
+    if (params.what_was_added.trim().length === 0) {
+        return {success: false, error: "Field what_was_added cannot be empty"};
+    }
+
     return {success: true};
 }
 ```
@@ -355,12 +372,30 @@ interface DescribeFixParams {
 
 interface DescribeFixResult {
     success: boolean;
+    error?: string;  // Descriptive error message when validation fails
 }
 
-async function describeFix(params: DescribeFixParams): Promise<DescribeFixResult> {
-    if (!params.bug_description || !params.fix_description) {
-        return {success: false};
+function describeFix(params: DescribeFixParams): DescribeFixResult {
+    // Validate bug_description: must be a non-empty string
+    if (params.bug_description === undefined ||
+        params.bug_description === null ||
+        typeof params.bug_description !== "string") {
+        return {success: false, error: "Missing required field: bug_description"};
     }
+    if (params.bug_description.trim().length === 0) {
+        return {success: false, error: "Field bug_description cannot be empty"};
+    }
+
+    // Validate fix_description: must be a non-empty string
+    if (params.fix_description === undefined ||
+        params.fix_description === null ||
+        typeof params.fix_description !== "string") {
+        return {success: false, error: "Missing required field: fix_description"};
+    }
+    if (params.fix_description.trim().length === 0) {
+        return {success: false, error: "Field fix_description cannot be empty"};
+    }
+
     return {success: true};
 }
 ```
