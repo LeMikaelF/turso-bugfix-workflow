@@ -7,6 +7,8 @@ import { z } from "zod";
 import { runSimulator, type RunSimulatorResult } from "./run-simulator.js";
 import { describeSimFix, type DescribeSimFixResult } from "./describe-sim-fix.js";
 import { describeFix, type DescribeFixResult } from "./describe-fix.js";
+import { validateFixFast, type ValidateFixFastResult } from "./validate-fix-fast.js";
+import { validateFixSlow, type ValidateFixSlowResult } from "./validate-fix-slow.js";
 
 // Tool schemas using Zod
 const runSimulatorSchema = {
@@ -22,6 +24,10 @@ const describeSimFixSchema = {
 const describeFixSchema = {
   bug_description: z.string().describe("Description of what the bug was (root cause)"),
   fix_description: z.string().describe("Description of how the bug was fixed"),
+};
+
+const validateFixSlowSchema = {
+  failing_seed: z.number().int().min(0).max(2147483647).describe("The seed that originally triggered the panic (must be a non-negative 32-bit integer)"),
 };
 
 /**
@@ -99,9 +105,45 @@ export function createMcpServer(): McpServer {
     }
   );
 
-  // Placeholder for future tools (steps 18-19):
-  // - validate-fix-fast
-  // - validate-fix-slow
+  // Register validate-fix-fast tool
+  server.tool(
+    "validate-fix-fast",
+    "Run `make test-single` to quickly validate a fix passes the single TCL test. Use this for fast iteration during fix development.",
+    {},
+    async (): Promise<{ content: Array<{ type: "text"; text: string }> }> => {
+      const result: ValidateFixFastResult = await validateFixFast();
+
+      return {
+        content: [
+          {
+            type: "text",
+            text: JSON.stringify(result, null, 2),
+          },
+        ],
+      };
+    }
+  );
+
+  // Register validate-fix-slow tool
+  server.tool(
+    "validate-fix-slow",
+    "Run full validation: `make test` + simulator 10x with the failing seed. Use this for final validation before shipping the fix.",
+    validateFixSlowSchema,
+    async (params): Promise<{ content: Array<{ type: "text"; text: string }> }> => {
+      const result: ValidateFixSlowResult = await validateFixSlow({
+        failing_seed: params.failing_seed,
+      });
+
+      return {
+        content: [
+          {
+            type: "text",
+            text: JSON.stringify(result, null, 2),
+          },
+        ],
+      };
+    }
+  );
 
   return server;
 }
