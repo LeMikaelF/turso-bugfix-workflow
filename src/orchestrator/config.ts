@@ -1,5 +1,7 @@
 // Configuration loading from environment variables
 
+//TODO change this to instead load properties from a json file "properties.json"
+
 export interface Config {
   // Database
   tursoUrl: string;
@@ -19,6 +21,7 @@ export interface Config {
   githubToken: string;
   githubRepo: string;
   prReviewer: string;
+  prLabels: string[];
 
   // IPC
   ipcPort: number;
@@ -62,6 +65,10 @@ export function loadConfig(): Config {
     githubToken: requireEnv("GITHUB_TOKEN"),
     githubRepo: optionalEnv("GITHUB_REPO", "tursodatabase/turso"),
     prReviewer: optionalEnv("PR_REVIEWER", "@LeMikaelF"),
+    prLabels: optionalEnv("PR_LABELS", "")
+      .split(",")
+      .map((s) => s.trim())
+      .filter((s) => s.length > 0),
     ipcPort: optionalIntEnv("IPC_PORT", 9100),
   };
 }
@@ -80,6 +87,7 @@ export function loadConfigWithDefaults(
     githubToken: "test-token",
     githubRepo: "tursodatabase/turso",
     prReviewer: "@LeMikaelF",
+    prLabels: ["automated", "panic-fix"],
     ipcPort: 9100,
   };
 
