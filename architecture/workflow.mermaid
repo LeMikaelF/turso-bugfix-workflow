@@ -25,7 +25,7 @@ flowchart TD
         R4{"Simulator<br/>compiles?"}
         R5["Run simulator"]
         R6{"Panic<br/>reproduced?"}
-        R7["🔧 describe-sim-fix:<br/>• record failing seed<br/>• why simulator missed it<br/>• what was added<br/>• update JSON block in .md file"]
+        R7["🔧 describe-sim-fix:<br/>• failing_seed<br/>• why simulator missed it<br/>• what was added<br/>(auto-updates JSON block)"]
         R8["📌 git commit (LLM):<br/>'reproducer: {panic_id}'"]
         RT{{"Timeout?"}}
     end

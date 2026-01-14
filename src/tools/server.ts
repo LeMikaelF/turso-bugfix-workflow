@@ -16,6 +16,7 @@ const runSimulatorSchema = {
 };
 
 const describeSimFixSchema = {
+  failing_seed: z.number().int().min(0).max(2147483647).describe("The seed that triggered the panic (from run-simulator result)"),
   why_simulator_missed: z.string().describe("Explanation of why the simulator didn't catch this panic before"),
   what_was_added: z.string().describe("Description of what was added to make the simulator generate the triggering statements"),
 };
@@ -63,10 +64,11 @@ export function createMcpServer(): McpServer {
   // Register describe-sim-fix tool
   server.tool(
     "describe-sim-fix",
-    "Document simulator changes made by the Reproducer agent. Call this after extending the simulator to reproduce a panic.",
+    "Document simulator changes made by the Reproducer agent and update the JSON block in panic_context.md. Call this after extending the simulator to reproduce a panic.",
     describeSimFixSchema,
     async (params): Promise<{ content: Array<{ type: "text"; text: string }> }> => {
-      const result: DescribeSimFixResult = describeSimFix({
+      const result: DescribeSimFixResult = await describeSimFix({
+        failing_seed: params.failing_seed,
         why_simulator_missed: params.why_simulator_missed,
         what_was_added: params.what_was_added,
       });

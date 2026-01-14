@@ -325,37 +325,59 @@ async function runSimulator(params: RunSimulatorParams): Promise<RunSimulatorRes
 
 #### Tool: `describe-sim-fix`
 
+Documents simulator changes and updates the JSON block in `panic_context.md`.
+
 ```typescript
 interface DescribeSimFixParams {
+    failing_seed: number;         // The seed that reproduced the panic
     why_simulator_missed: string;
     what_was_added: string;
 }
 
 interface DescribeSimFixResult {
     success: boolean;
-    error?: string;  // Descriptive error message when validation fails
+    error?: string;  // Descriptive error message when validation or file update fails
 }
 
-function describeSimFix(params: DescribeSimFixParams): DescribeSimFixResult {
-    // Validate why_simulator_missed: must be a non-empty string
-    if (params.why_simulator_missed === undefined ||
-        params.why_simulator_missed === null ||
-        typeof params.why_simulator_missed !== "string") {
-        return {success: false, error: "Missing required field: why_simulator_missed"};
+async function describeSimFix(params: DescribeSimFixParams): Promise<DescribeSimFixResult> {
+    // Validate failing_seed: must be a number
+    if (typeof params.failing_seed !== "number") {
+        return {success: false, error: "Missing required field: failing_seed (must be a number)"};
     }
-    if (params.why_simulator_missed.trim().length === 0) {
+
+    // Validate why_simulator_missed: must be a non-empty string
+    if (typeof params.why_simulator_missed !== "string" ||
+        params.why_simulator_missed.trim().length === 0) {
         return {success: false, error: "Field why_simulator_missed cannot be empty"};
     }
 
     // Validate what_was_added: must be a non-empty string
-    if (params.what_was_added === undefined ||
-        params.what_was_added === null ||
-        typeof params.what_was_added !== "string") {
-        return {success: false, error: "Missing required field: what_was_added"};
-    }
-    if (params.what_was_added.trim().length === 0) {
+    if (typeof params.what_was_added !== "string" ||
+        params.what_was_added.trim().length === 0) {
         return {success: false, error: "Field what_was_added cannot be empty"};
     }
+
+    // Read and parse panic_context.md
+    const content = await fs.readFile("panic_context.md", "utf-8");
+    const jsonBlockRegex = /```json\n([\s\S]*?)\n```/;
+    const match = content.match(jsonBlockRegex);
+    if (!match) {
+        return {success: false, error: "No JSON block found in panic_context.md"};
+    }
+
+    const prData = JSON.parse(match[1]);
+
+    // Update fields
+    prData.failing_seed = params.failing_seed;
+    prData.why_simulator_missed = params.why_simulator_missed;
+    prData.simulator_changes = params.what_was_added;
+
+    // Write back
+    const updatedContent = content.replace(
+        jsonBlockRegex,
+        "```json\n" + JSON.stringify(prData, null, 2) + "\n```"
+    );
+    await fs.writeFile("panic_context.md", updatedContent);
 
     return {success: true};
 }
@@ -492,7 +514,7 @@ Read the file `panic_context.md` in the repository root. It contains:
 
 - The panic location and message
 - The SQL statements that reproduce the panic
-- A JSON block that you must update
+- A JSON block (updated automatically by `describe-sim-fix`)
 
 Another agent (the Fixer) will use this file after you're done, so keep it well-organized.
 
@@ -501,20 +523,14 @@ Another agent (the Fixer) will use this file after you're done, so keep it well-
 1. **Analyze** the panic and the SQL statements that trigger it
 2. **Extend the simulator** to generate similar statements
 3. **Run the simulator** using the `run-simulator` tool until the panic is reproduced
-4. **Record the failing seed** when you successfully reproduce the panic
-5. **Call `describe-sim-fix`** to document:
-    - Why the simulator didn't catch this panic before
-    - What you added to make it generate the triggering statements
-6. **Update the JSON block** in `panic_context.md` with:
-    - `failing_seed`
-    - `why_simulator_missed`
-    - `simulator_changes`
-7. **Commit your changes** with message: `reproducer: {panic_location}`
+4. **Call `describe-sim-fix`** with the failing seed and documentation
+   - This automatically updates the JSON block in `panic_context.md`
+5. **Commit your changes** with message: `reproducer: {panic_location}`
 
 ## Tools Available
 
 - `run-simulator`: Run the simulator with an optional seed
-- `describe-sim-fix`: Document your simulator changes
+- `describe-sim-fix`: Document your simulator changes and update JSON block
 
 ## Important
 
