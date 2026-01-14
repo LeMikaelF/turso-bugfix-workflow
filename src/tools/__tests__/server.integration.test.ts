@@ -112,7 +112,7 @@ describe("MCP Server Integration (stdio)", () => {
     expect(runSimulator.inputSchema.properties.timeout_seconds.type).toBe("number");
   });
 
-  it("should register validate-fix-fast tool with no input parameters", () => {
+  it("should register validate-fix tool with failing_seed parameter", () => {
     const output = execSync(
       `echo '{"jsonrpc":"2.0","id":1,"method":"tools/list"}' | timeout 5 npx tsx src/tools/server.ts`,
       {
@@ -122,41 +122,19 @@ describe("MCP Server Integration (stdio)", () => {
     );
 
     const response = JSON.parse(output.trim());
-    const validateFixFast = response.result.tools.find(
-      (t: { name: string }) => t.name === "validate-fix-fast"
+    const validateFix = response.result.tools.find(
+      (t: { name: string }) => t.name === "validate-fix"
     );
 
-    expect(validateFixFast).toBeDefined();
-    expect(validateFixFast.name).toBe("validate-fix-fast");
-    expect(validateFixFast.description).toContain("make test-single");
-    expect(validateFixFast.inputSchema.type).toBe("object");
-    // No required properties for this tool
-    expect(validateFixFast.inputSchema.required).toBeUndefined();
-  });
-
-  it("should register validate-fix-slow tool with failing_seed parameter", () => {
-    const output = execSync(
-      `echo '{"jsonrpc":"2.0","id":1,"method":"tools/list"}' | timeout 5 npx tsx src/tools/server.ts`,
-      {
-        encoding: "utf-8",
-        cwd: process.cwd(),
-      }
-    );
-
-    const response = JSON.parse(output.trim());
-    const validateFixSlow = response.result.tools.find(
-      (t: { name: string }) => t.name === "validate-fix-slow"
-    );
-
-    expect(validateFixSlow).toBeDefined();
-    expect(validateFixSlow.name).toBe("validate-fix-slow");
-    expect(validateFixSlow.description).toContain("make test");
-    expect(validateFixSlow.description).toContain("simulator");
-    expect(validateFixSlow.inputSchema.type).toBe("object");
-    expect(validateFixSlow.inputSchema.properties.failing_seed).toBeDefined();
-    expect(validateFixSlow.inputSchema.properties.failing_seed.type).toBe("integer");
+    expect(validateFix).toBeDefined();
+    expect(validateFix.name).toBe("validate-fix");
+    expect(validateFix.description).toContain("fast validation");
+    expect(validateFix.description).toContain("slow validation");
+    expect(validateFix.inputSchema.type).toBe("object");
+    expect(validateFix.inputSchema.properties.failing_seed).toBeDefined();
+    expect(validateFix.inputSchema.properties.failing_seed.type).toBe("integer");
     // Seed should have bounds validation
-    expect(validateFixSlow.inputSchema.properties.failing_seed.minimum).toBe(0);
-    expect(validateFixSlow.inputSchema.properties.failing_seed.maximum).toBe(2147483647);
+    expect(validateFix.inputSchema.properties.failing_seed.minimum).toBe(0);
+    expect(validateFix.inputSchema.properties.failing_seed.maximum).toBe(2147483647);
   });
 });

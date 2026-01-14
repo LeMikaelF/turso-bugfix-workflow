@@ -45,16 +45,12 @@ Look at AGENTS.md in Turso for some important instructions on working with the c
 3. **Commit when it compiles**
     - Commit with message: `wip: fix compiles`
 
-4. **Fast validation**
-    - Call the `validate-fix-fast` tool (runs the single TCL test)
+4. **Validate your fix**
+    - Call the `validate-fix` tool with the `failing_seed`
+    - This runs: TCL test, then full test suite + simulator 10 times
     - If it fails, analyze the error and iterate on your fix
 
-5. **Slow validation**
-    - Call the `validate-fix-slow` tool with the `failing_seed`
-    - This runs: full test suite + simulator 10 times
-    - If it fails, analyze and iterate
-
-6. **Document your fix**
+5. **Document your fix**
     - Call `describe-fix` with:
         - `bug_description`: What was the bug? (root cause)
         - `fix_description`: How did you fix it?
@@ -70,19 +66,12 @@ Look at AGENTS.md in Turso for some important instructions on working with the c
 
 ## MCP Tools
 
-### validate-fix-fast
+### validate-fix
 
-Quick validation - runs the single TCL test for this panic.
-
-- No parameters
-- Returns: `{ passed, error?, stdout?, stderr? }`
-
-### validate-fix-slow
-
-Full validation - runs all tests + simulator 10 times.
+Unified validation - runs TCL test first, then full test suite + simulator 10 times.
 
 - `failing_seed` (required): The seed from the Reproducer
-- Returns: `{ passed, make_test_passed, sim_runs_passed, error? }`
+- Returns: `{ passed, fast_validation_passed, slow_validation_passed?, make_test_passed?, sim_runs_passed?, error? }`
 
 ### describe-fix
 
@@ -90,6 +79,8 @@ Document your bug fix. Call this after validation passes, and only if it passes.
 
 - `bug_description` (required): What was the bug (root cause)
 - `fix_description` (required): How you fixed it
+
+[//]: # (TODO the describe_fix tool shouldn't return an error, instead it should abort the simulator)
 - Returns: `{ success, error? }`
 
 ## Iteration Guidance
@@ -100,7 +91,7 @@ If validation fails:
 2. The bug might be more complex than initially thought
 3. Check if your fix introduced a regression
 4. Consider edge cases in the original panic location
-5. Iterate: fix → validate-fix-fast → validate-fix-slow → fix
+5. Iterate: fix → validate-fix → fix
 
 ## Constraints
 

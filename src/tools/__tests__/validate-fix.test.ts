@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { validateFixSlow, validateFailingSeed } from "../validate-fix-slow.js";
+import { validateFix, validateFailingSeed } from "../validate-fix.js";
 
 // Use vi.hoisted to create mocks before module loading
 const { mockExecAsync, mockRunSimulator } = vi.hoisted(() => ({
@@ -17,7 +17,7 @@ vi.mock("../run-simulator.js", () => ({
   runSimulator: mockRunSimulator,
 }));
 
-describe("validate-fix-slow", () => {
+describe("validate-fix", () => {
   beforeEach(() => {
     vi.clearAllMocks();
   });
@@ -73,64 +73,84 @@ describe("validate-fix-slow", () => {
     });
   });
 
-  describe("validateFixSlow", () => {
-    it("should return passed: true when make test and all simulator runs pass", async () => {
-      mockExecAsync.mockResolvedValue({ stdout: "Tests passed", stderr: "" });
+  describe("validateFix", () => {
+    it("should return passed: true when all validations pass", async () => {
+      // Fast validation (make test-single) succeeds
+      mockExecAsync.mockResolvedValueOnce({ stdout: "Test passed", stderr: "" });
+      // Slow validation (make test) succeeds
+      mockExecAsync.mockResolvedValueOnce({ stdout: "Tests passed", stderr: "" });
+      // All simulator runs pass
       mockRunSimulator.mockResolvedValue({ panic_found: false, seed_used: 12345 });
 
-      const result = await validateFixSlow({ failing_seed: 12345 });
+      const result = await validateFix({ failing_seed: 12345 });
 
       expect(result.passed).toBe(true);
+      expect(result.fast_validation_passed).toBe(true);
+      expect(result.slow_validation_passed).toBe(true);
       expect(result.make_test_passed).toBe(true);
       expect(result.sim_runs_passed).toBe(true);
       expect(result.error).toBeUndefined();
     });
 
-    it("should run simulator 10 times", async () => {
+    it("should run fast validation before slow validation", async () => {
       mockExecAsync.mockResolvedValue({ stdout: "", stderr: "" });
       mockRunSimulator.mockResolvedValue({ panic_found: false, seed_used: 12345 });
 
-      await validateFixSlow({ failing_seed: 12345 });
+      await validateFix({ failing_seed: 12345 });
+
+      // First call should be make test-single (fast), second should be make test (slow)
+      expect(mockExecAsync).toHaveBeenCalledTimes(2);
+      expect(mockExecAsync.mock.calls[0]?.[0]).toBe("make test-single");
+      expect(mockExecAsync.mock.calls[1]?.[0]).toBe("make test");
+    });
+
+    it("should run simulator 10 times after make test passes", async () => {
+      mockExecAsync.mockResolvedValue({ stdout: "", stderr: "" });
+      mockRunSimulator.mockResolvedValue({ panic_found: false, seed_used: 12345 });
+
+      await validateFix({ failing_seed: 12345 });
 
       expect(mockRunSimulator).toHaveBeenCalledTimes(10);
-      // All calls should use the same failing seed
       for (const call of mockRunSimulator.mock.calls) {
         expect(call[0]).toEqual({ seed: 12345 });
       }
     });
 
     it("should return error when failing_seed is invalid", async () => {
-      const result = await validateFixSlow({ failing_seed: -1 });
+      const result = await validateFix({ failing_seed: -1 });
 
       expect(result.passed).toBe(false);
-      expect(result.make_test_passed).toBe(false);
-      expect(result.sim_runs_passed).toBe(false);
+      expect(result.fast_validation_passed).toBe(false);
       expect(result.error).toContain("Invalid failing_seed");
       expect(mockExecAsync).not.toHaveBeenCalled();
       expect(mockRunSimulator).not.toHaveBeenCalled();
     });
 
-    it("should return error when make test fails", async () => {
+    it("should return error when fast validation fails", async () => {
       const error = new Error("Command failed") as Error & {
         code: number;
         stdout: string;
         stderr: string;
       };
       error.code = 2;
-      error.stdout = "";
-      error.stderr = "Compilation error";
-      mockExecAsync.mockRejectedValue(error);
+      error.stdout = "some output";
+      error.stderr = "TCL test failed";
+      mockExecAsync.mockRejectedValueOnce(error);
 
-      const result = await validateFixSlow({ failing_seed: 12345 });
+      const result = await validateFix({ failing_seed: 12345 });
 
       expect(result.passed).toBe(false);
-      expect(result.make_test_passed).toBe(false);
-      expect(result.sim_runs_passed).toBe(false);
-      expect(result.error).toBe("Compilation error");
+      expect(result.fast_validation_passed).toBe(false);
+      expect(result.slow_validation_passed).toBeUndefined();
+      expect(result.error).toBe("TCL test failed");
+      expect(result.stdout).toBe("some output");
+      expect(result.stderr).toBe("TCL test failed");
+      // Should not proceed to slow validation
+      expect(mockExecAsync).toHaveBeenCalledTimes(1);
       expect(mockRunSimulator).not.toHaveBeenCalled();
     });
 
-    it("should return error when make test times out", async () => {
+    it("should return error when fast validation times out", async () => {
       const error = new Error("Timeout") as Error & {
         killed: boolean;
         signal: string;
@@ -141,11 +161,62 @@ describe("validate-fix-slow", () => {
       error.signal = "SIGTERM";
       error.stdout = "";
       error.stderr = "";
-      mockExecAsync.mockRejectedValue(error);
+      mockExecAsync.mockRejectedValueOnce(error);
 
-      const result = await validateFixSlow({ failing_seed: 12345 });
+      const result = await validateFix({ failing_seed: 12345 });
 
       expect(result.passed).toBe(false);
+      expect(result.fast_validation_passed).toBe(false);
+      expect(result.error).toBe("Fast validation timed out");
+    });
+
+    it("should return error when make test fails", async () => {
+      // Fast validation succeeds
+      mockExecAsync.mockResolvedValueOnce({ stdout: "", stderr: "" });
+      // Slow validation (make test) fails
+      const error = new Error("Command failed") as Error & {
+        code: number;
+        stdout: string;
+        stderr: string;
+      };
+      error.code = 2;
+      error.stdout = "";
+      error.stderr = "Compilation error";
+      mockExecAsync.mockRejectedValueOnce(error);
+
+      const result = await validateFix({ failing_seed: 12345 });
+
+      expect(result.passed).toBe(false);
+      expect(result.fast_validation_passed).toBe(true);
+      expect(result.slow_validation_passed).toBe(false);
+      expect(result.make_test_passed).toBe(false);
+      // sim_runs_passed should be undefined since simulators never ran
+      expect(result.sim_runs_passed).toBeUndefined();
+      expect(result.error).toBe("Compilation error");
+      expect(mockRunSimulator).not.toHaveBeenCalled();
+    });
+
+    it("should return error when make test times out", async () => {
+      // Fast validation succeeds
+      mockExecAsync.mockResolvedValueOnce({ stdout: "", stderr: "" });
+      // Slow validation times out
+      const error = new Error("Timeout") as Error & {
+        killed: boolean;
+        signal: string;
+        stdout: string;
+        stderr: string;
+      };
+      error.killed = true;
+      error.signal = "SIGTERM";
+      error.stdout = "";
+      error.stderr = "";
+      mockExecAsync.mockRejectedValueOnce(error);
+
+      const result = await validateFix({ failing_seed: 12345 });
+
+      expect(result.passed).toBe(false);
+      expect(result.fast_validation_passed).toBe(true);
+      expect(result.slow_validation_passed).toBe(false);
       expect(result.make_test_passed).toBe(false);
       expect(result.error).toBe("make test timed out");
     });
@@ -159,9 +230,11 @@ describe("validate-fix-slow", () => {
         .mockResolvedValueOnce({ panic_found: false, seed_used: 12345 })
         .mockResolvedValueOnce({ panic_found: true, seed_used: 12345, panic_message: "assertion failed" });
 
-      const result = await validateFixSlow({ failing_seed: 12345 });
+      const result = await validateFix({ failing_seed: 12345 });
 
       expect(result.passed).toBe(false);
+      expect(result.fast_validation_passed).toBe(true);
+      expect(result.slow_validation_passed).toBe(false);
       expect(result.make_test_passed).toBe(true);
       expect(result.sim_runs_passed).toBe(false);
       expect(result.error).toBe("Panic still occurs on simulator run 4 of 10");
@@ -172,9 +245,11 @@ describe("validate-fix-slow", () => {
       mockExecAsync.mockResolvedValue({ stdout: "", stderr: "" });
       mockRunSimulator.mockResolvedValue({ panic_found: true, seed_used: 12345, panic_message: "crash" });
 
-      const result = await validateFixSlow({ failing_seed: 12345 });
+      const result = await validateFix({ failing_seed: 12345 });
 
       expect(result.passed).toBe(false);
+      expect(result.fast_validation_passed).toBe(true);
+      expect(result.slow_validation_passed).toBe(false);
       expect(result.make_test_passed).toBe(true);
       expect(result.sim_runs_passed).toBe(false);
       expect(result.error).toBe("Panic still occurs on simulator run 1 of 10");
@@ -189,37 +264,47 @@ describe("validate-fix-slow", () => {
         error: "Simulator crashed unexpectedly",
       });
 
-      const result = await validateFixSlow({ failing_seed: 12345 });
+      const result = await validateFix({ failing_seed: 12345 });
 
       expect(result.passed).toBe(false);
+      expect(result.fast_validation_passed).toBe(true);
+      expect(result.slow_validation_passed).toBe(false);
       expect(result.make_test_passed).toBe(true);
       expect(result.sim_runs_passed).toBe(false);
       expect(result.error).toBe("Simulator error on run 1: Simulator crashed unexpectedly");
     });
 
-    it("should handle unknown error type from make test", async () => {
-      mockExecAsync.mockRejectedValue("Some random error");
+    it("should call make test-single with correct options", async () => {
+      mockExecAsync.mockResolvedValue({ stdout: "", stderr: "" });
+      mockRunSimulator.mockResolvedValue({ panic_found: false, seed_used: 12345 });
 
-      const result = await validateFixSlow({ failing_seed: 12345 });
+      await validateFix({ failing_seed: 12345 });
 
-      expect(result.passed).toBe(false);
-      expect(result.make_test_passed).toBe(false);
-      expect(result.error).toBe("Some random error");
+      expect(mockExecAsync.mock.calls[0]).toEqual([
+        "make test-single",
+        {
+          timeout: 5 * 60 * 1000, // 5 minutes
+          maxBuffer: 10 * 1024 * 1024, // 10MB
+        },
+      ]);
     });
 
     it("should call make test with correct options", async () => {
       mockExecAsync.mockResolvedValue({ stdout: "", stderr: "" });
       mockRunSimulator.mockResolvedValue({ panic_found: false, seed_used: 12345 });
 
-      await validateFixSlow({ failing_seed: 12345 });
+      await validateFix({ failing_seed: 12345 });
 
-      expect(mockExecAsync).toHaveBeenCalledWith("make test", {
-        timeout: 30 * 60 * 1000, // 30 minutes
-        maxBuffer: 10 * 1024 * 1024, // 10MB
-      });
+      expect(mockExecAsync.mock.calls[1]).toEqual([
+        "make test",
+        {
+          timeout: 30 * 60 * 1000, // 30 minutes
+          maxBuffer: 10 * 1024 * 1024, // 10MB
+        },
+      ]);
     });
 
-    it("should handle make test error without stderr", async () => {
+    it("should handle fast validation error without stderr", async () => {
       const error = new Error("Command failed") as Error & {
         code: number;
         stdout: string;
@@ -228,12 +313,35 @@ describe("validate-fix-slow", () => {
       error.code = 1;
       error.stdout = "";
       error.stderr = "";
-      mockExecAsync.mockRejectedValue(error);
+      mockExecAsync.mockRejectedValueOnce(error);
 
-      const result = await validateFixSlow({ failing_seed: 12345 });
+      const result = await validateFix({ failing_seed: 12345 });
 
       expect(result.passed).toBe(false);
-      expect(result.error).toBe("make test failed with exit code 1");
+      expect(result.fast_validation_passed).toBe(false);
+      expect(result.error).toBe("Fast validation failed with exit code 1");
+    });
+
+    it("should handle unknown error type from fast validation", async () => {
+      mockExecAsync.mockRejectedValueOnce("Some random error");
+
+      const result = await validateFix({ failing_seed: 12345 });
+
+      expect(result.passed).toBe(false);
+      expect(result.fast_validation_passed).toBe(false);
+      expect(result.error).toBe("Some random error");
+    });
+
+    it("should handle unknown error type from make test", async () => {
+      mockExecAsync.mockResolvedValueOnce({ stdout: "", stderr: "" });
+      mockExecAsync.mockRejectedValueOnce("Some random error");
+
+      const result = await validateFix({ failing_seed: 12345 });
+
+      expect(result.passed).toBe(false);
+      expect(result.fast_validation_passed).toBe(true);
+      expect(result.slow_validation_passed).toBe(false);
+      expect(result.error).toBe("Some random error");
     });
   });
 });

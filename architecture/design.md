@@ -279,8 +279,7 @@ tools/
 │   ├── run-simulator.ts      # Run simulator with seed
 │   ├── describe-sim-fix.ts   # Document simulator changes
 │   ├── describe-fix.ts       # Document bug fix
-│   ├── validate-fix-fast.ts  # Run single TCL test
-│   └── validate-fix-slow.ts  # Run full test suite + sim
+│   └── validate-fix.ts       # Run validation (fast + slow)
 ├── package.json
 └── tsconfig.json
 ```
@@ -400,45 +399,54 @@ function describeFix(params: DescribeFixParams): DescribeFixResult {
 }
 ```
 
-#### Tool: `validate-fix-fast`
+#### Tool: `validate-fix`
 
 ```typescript
-interface ValidateFixFastResult {
-    passed: boolean;
-    error?: string;
-}
-
-async function validateFixFast(): Promise<ValidateFixFastResult> {
-    const result = await exec('make test-single');
-    return {
-        passed: result.exitCode === 0,
-        error: result.exitCode !== 0 ? result.stderr : undefined
-    };
-}
-```
-
-#### Tool: `validate-fix-slow`
-
-```typescript
-interface ValidateFixSlowParams {
+interface ValidateFixParams {
     failing_seed: number;
 }
 
-interface ValidateFixSlowResult {
+/**
+ * Field presence by validation stage:
+ * - passed, fast_validation_passed: Always present
+ * - slow_validation_passed, make_test_passed: Present if fast validation passed
+ * - sim_runs_passed: Present only if make test passed (simulators actually ran)
+ * - error: Present when validation fails
+ * - stdout, stderr: Present on fast validation failure (for debugging)
+ */
+interface ValidateFixResult {
     passed: boolean;
-    make_test_passed: boolean;
-    sim_runs_passed: boolean;
+    fast_validation_passed: boolean;
+    slow_validation_passed?: boolean;
+    make_test_passed?: boolean;
+    sim_runs_passed?: boolean;
     error?: string;
+    stdout?: string;   // Only on fast validation failure
+    stderr?: string;   // Only on fast validation failure
 }
 
-async function validateFixSlow(params: ValidateFixSlowParams): Promise<ValidateFixSlowResult> {
-    // Run make test
+async function validateFix(params: ValidateFixParams): Promise<ValidateFixResult> {
+    // Run fast validation (make test-single)
+    const fastResult = await exec('make test-single');
+    if (fastResult.exitCode !== 0) {
+        return {
+            passed: false,
+            fast_validation_passed: false,
+            error: fastResult.stderr,
+            stdout: fastResult.stdout,
+            stderr: fastResult.stderr
+        };
+    }
+
+    // Run slow validation: make test
     const makeResult = await exec('make test');
     if (makeResult.exitCode !== 0) {
         return {
             passed: false,
+            fast_validation_passed: true,
+            slow_validation_passed: false,
             make_test_passed: false,
-            sim_runs_passed: false,
+            // sim_runs_passed omitted - simulators never ran
             error: makeResult.stderr
         };
     }
@@ -449,15 +457,19 @@ async function validateFixSlow(params: ValidateFixSlowParams): Promise<ValidateF
         if (simResult.panic_found) {
             return {
                 passed: false,
+                fast_validation_passed: true,
+                slow_validation_passed: false,
                 make_test_passed: true,
                 sim_runs_passed: false,
-                error: `Panic still occurs on run ${i + 1}`
+                error: `Panic still occurs on simulator run ${i + 1} of 10`
             };
         }
     }
 
     return {
         passed: true,
+        fast_validation_passed: true,
+        slow_validation_passed: true,
         make_test_passed: true,
         sim_runs_passed: true
     };
@@ -534,20 +546,18 @@ Read the file `panic_context.md` in the repository root. It contains:
 1. **Analyze** the root cause of the panic
 2. **Implement a fix** in the Turso codebase
 3. **Commit** when it compiles with message: `wip: fix compiles`
-4. **Validate (fast)** using `validate-fix-fast` - runs the single TCL test
-5. **Validate (slow)** using `validate-fix-slow` - runs full test suite and simulator
-6. **Call `describe-fix`** after validation passes to document:
+4. **Validate** using `validate-fix` - runs TCL test, then full test suite and simulator
+5. **Call `describe-fix`** after validation passes to document:
     - What the bug was
     - How you fixed it
-7. **Update the JSON block** in `panic_context.md` with:
+6. **Update the JSON block** in `panic_context.md` with:
     - `bug_description`
     - `fix_description`
-8. **Commit your changes** with message: `fix: {panic_location}`
+7. **Commit your changes** with message: `fix: {panic_location}`
 
 ## Tools Available
 
-- `validate-fix-fast`: Run single TCL test (fast iteration)
-- `validate-fix-slow`: Run full test suite + simulator 10x (final validation)
+- `validate-fix`: Run TCL test, then full test suite + simulator 10x
 - `describe-fix`: Document your fix
 
 ## Important
@@ -1009,8 +1019,7 @@ turso-panic-fixer/
 │   │   ├── run-simulator.ts
 │   │   ├── describe-sim-fix.ts
 │   │   ├── describe-fix.ts
-│   │   ├── validate-fix-fast.ts
-│   │   └── validate-fix-slow.ts
+│   │   └── validate-fix.ts
 │   ├── package.json
 │   └── tsconfig.json
 ├── prompts/
