@@ -8,12 +8,13 @@ import {
 import type { PanicContextData } from "../context-parser.js";
 import type { SandboxManager, ExecResult } from "../sandbox.js";
 
-// Mock fs/promises for loadPrTemplate
+// Mock fs/promises for loadPrTemplate and writeFile
 vi.mock("node:fs/promises", () => ({
   readFile: vi.fn(),
+  writeFile: vi.fn(),
 }));
 
-import { readFile } from "node:fs/promises";
+import { readFile, writeFile } from "node:fs/promises";
 
 // Helper to create mock sandbox manager
 function createMockSandbox(
@@ -164,6 +165,7 @@ https://github.com/tursodatabase/turso/pull/456`;
     const config = {
       prReviewer: "@LeMikaelF",
       prLabels: ["automated", "panic-fix"],
+      dryRun: false,
     };
 
     it("should create PR with correct gh command", async () => {
@@ -279,6 +281,87 @@ https://github.com/tursodatabase/turso/pull/456`;
       const calls = runInSession.mock.calls as Array<[string, string]>;
       const command = calls[0]![1];
       expect(command).not.toContain("--label");
+    });
+  });
+
+  describe("createPullRequest with dryRun", () => {
+    const dryRunConfig = {
+      prReviewer: "@LeMikaelF",
+      prLabels: ["automated", "panic-fix"],
+      dryRun: true,
+    };
+
+    beforeEach(() => {
+      (writeFile as ReturnType<typeof vi.fn>).mockResolvedValue(undefined);
+    });
+
+    it("should not call sandbox.runInSession when dryRun is true", async () => {
+      (readFile as ReturnType<typeof vi.fn>).mockResolvedValue(sampleTemplate);
+      const sandbox = createMockSandbox(async () =>
+        successResult("https://github.com/owner/repo/pull/1")
+      );
+
+      await createPullRequest(
+        {
+          sessionName: "test-session",
+          contextData: sampleContextData,
+        },
+        sandbox,
+        dryRunConfig
+      );
+
+      const runInSession = sandbox.runInSession as ReturnType<typeof vi.fn>;
+      expect(runInSession).not.toHaveBeenCalled();
+    });
+
+    it("should write body and command files to /tmp", async () => {
+      (readFile as ReturnType<typeof vi.fn>).mockResolvedValue(sampleTemplate);
+      const sandbox = createMockSandbox(async () =>
+        successResult("https://github.com/owner/repo/pull/1")
+      );
+
+      await createPullRequest(
+        {
+          sessionName: "test-session",
+          contextData: sampleContextData,
+        },
+        sandbox,
+        dryRunConfig
+      );
+
+      const writeFileMock = writeFile as ReturnType<typeof vi.fn>;
+      expect(writeFileMock).toHaveBeenCalledTimes(2);
+
+      // Check body file
+      const bodyCall = writeFileMock.mock.calls[0] as [string, string, string];
+      expect(bodyCall[0]).toMatch(/^\/tmp\/pr-dry-run-test-session-\d+-body\.md$/);
+      expect(bodyCall[1]).toContain("**Location:** src/vdbe.c:1234");
+      expect(bodyCall[2]).toBe("utf-8");
+
+      // Check command file
+      const commandCall = writeFileMock.mock.calls[1] as [string, string, string];
+      expect(commandCall[0]).toMatch(/^\/tmp\/pr-dry-run-test-session-\d+-command\.txt$/);
+      expect(commandCall[1]).toContain("gh pr create");
+      expect(commandCall[1]).toContain("--draft");
+      expect(commandCall[2]).toBe("utf-8");
+    });
+
+    it("should return placeholder URL when dryRun is true", async () => {
+      (readFile as ReturnType<typeof vi.fn>).mockResolvedValue(sampleTemplate);
+      const sandbox = createMockSandbox(async () =>
+        successResult("https://github.com/owner/repo/pull/1")
+      );
+
+      const prUrl = await createPullRequest(
+        {
+          sessionName: "test-session",
+          contextData: sampleContextData,
+        },
+        sandbox,
+        dryRunConfig
+      );
+
+      expect(prUrl).toBe("https://github.com/dry-run/pr/0");
     });
   });
 });

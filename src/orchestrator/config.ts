@@ -27,6 +27,9 @@ export interface Config {
 
   // IPC
   ipcPort: number;
+
+  // Dry run mode - don't actually create PRs
+  dryRun: boolean;
 }
 
 interface PropertiesFile {
@@ -41,6 +44,7 @@ interface PropertiesFile {
   prReviewer?: string;
   prLabels?: string[];
   ipcPort?: number;
+  dryRun?: boolean;
 }
 
 function findPropertiesFile(): string {
@@ -93,6 +97,7 @@ export function loadConfig(): Config {
     prReviewer: props.prReviewer ?? "@LeMikaelF",
     prLabels: props.prLabels ?? [],
     ipcPort: props.ipcPort ?? 9100,
+    dryRun: props.dryRun ?? false,
   };
 }
 
@@ -112,6 +117,7 @@ export function loadConfigWithDefaults(
     prReviewer: "@LeMikaelF",
     prLabels: ["automated", "panic-fix"],
     ipcPort: 9100,
+    dryRun: false,
   };
 
   return { ...defaults, ...overrides };

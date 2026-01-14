@@ -1,7 +1,7 @@
 // Pull request creation for the panic-fix workflow
 // Uses GitHub CLI (gh) to create draft PRs with labels
 
-import { readFile } from "node:fs/promises";
+import { readFile, writeFile } from "node:fs/promises";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { Config } from "./config.js";
@@ -92,7 +92,7 @@ export function extractPrUrl(output: string): string | null {
 export async function createPullRequest(
   params: CreatePullRequestParams,
   sandbox: SandboxManager,
-  config: Pick<Config, "prReviewer" | "prLabels">
+  config: Pick<Config, "prReviewer" | "prLabels" | "dryRun">
 ): Promise<string> {
   const { sessionName, contextData } = params;
 
@@ -116,6 +116,20 @@ export async function createPullRequest(
   ]
     .filter((part) => part.length > 0)
     .join(" ");
+
+  if (config.dryRun) {
+    const timestamp = Date.now();
+    const bodyPath = `/tmp/pr-dry-run-${sessionName}-${timestamp}-body.md`;
+    const commandPath = `/tmp/pr-dry-run-${sessionName}-${timestamp}-command.txt`;
+
+    await writeFile(bodyPath, body, "utf-8");
+    await writeFile(commandPath, command, "utf-8");
+
+    console.log(`[DRY RUN] PR body written to: ${bodyPath}`);
+    console.log(`[DRY RUN] gh command written to: ${commandPath}`);
+
+    return "https://github.com/dry-run/pr/0";
+  }
 
   const result = await sandbox.runInSession(sessionName, command);
 
