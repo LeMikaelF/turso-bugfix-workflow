@@ -83,6 +83,7 @@ export function createMockConfig(overrides?: Partial<Config>): Config {
     prLabels: [],
     ipcPort: 9100,
     dryRun: false,
+    useDirectExecution: false,
     ...overrides,
   };
 }

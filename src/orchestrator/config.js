@@ -57,6 +57,7 @@ export function loadConfigWithDefaults(overrides = {}) {
         prLabels: ["automated", "panic-fix"],
         ipcPort: 9100,
         dryRun: false,
+        useDirectExecution: false,
     };
     return { ...defaults, ...overrides };
 }

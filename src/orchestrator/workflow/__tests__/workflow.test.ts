@@ -44,6 +44,7 @@ function createMockConfig() {
     prLabels: [],
     ipcPort: 9100,
     dryRun: false,
+    useDirectExecution: false,
   };
 }
 
