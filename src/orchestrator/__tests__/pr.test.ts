@@ -347,5 +347,27 @@ https://github.com/tursodatabase/turso/pull/456`;
 
       expect(prUrl).toBe("https://github.com/dry-run/pr/0");
     });
+
+    it("should log session name when dryRun is true", async () => {
+      const consoleSpy = vi.spyOn(console, "log");
+      (readFile as ReturnType<typeof vi.fn>).mockResolvedValue(sampleTemplate);
+      const sandbox = createMockSandbox(async () =>
+        successResult("https://github.com/owner/repo/pull/1")
+      );
+
+      await createPullRequest(
+        {
+          sessionName: "test-session",
+          contextData: sampleContextData,
+        },
+        sandbox,
+        dryRunConfig
+      );
+
+      expect(consoleSpy).toHaveBeenCalledWith(
+        "[DRY RUN] Files available in session: test-session"
+      );
+      consoleSpy.mockRestore();
+    });
   });
 });

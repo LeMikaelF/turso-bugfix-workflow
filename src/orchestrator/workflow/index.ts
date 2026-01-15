@@ -262,14 +262,22 @@ export class WorkflowOrchestrator {
       currentStatus = result.nextStatus;
     }
 
-    // Cleanup on success
+    // Cleanup on success (skip in dry run mode to allow inspection)
     if (currentStatus === "pr_open") {
-      await this.logger.info(
-        panicLocation,
-        "orchestrator",
-        "Workflow complete, cleaning up session"
-      );
-      await this.sandbox.deleteSession(sessionName);
+      if (this.config.dryRun) {
+        await this.logger.info(
+          panicLocation,
+          "orchestrator",
+          `Workflow complete (dry run). Session retained: ${sessionName}`
+        );
+      } else {
+        await this.logger.info(
+          panicLocation,
+          "orchestrator",
+          "Workflow complete, cleaning up session"
+        );
+        await this.sandbox.deleteSession(sessionName);
+      }
     }
   }
 

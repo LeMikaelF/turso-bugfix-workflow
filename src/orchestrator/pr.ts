@@ -127,6 +127,7 @@ export async function createPullRequest(
 
     console.log(`[DRY RUN] PR body written to: ${bodyPath}`);
     console.log(`[DRY RUN] gh command written to: ${commandPath}`);
+    console.log(`[DRY RUN] Files available in session: ${sessionName}`);
 
     return "https://github.com/dry-run/pr/0";
   }

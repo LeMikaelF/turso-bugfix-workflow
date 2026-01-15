@@ -5,9 +5,26 @@
  * Uses mocks for all dependencies since we're testing orchestration logic.
  */
 
-import { describe, it, expect, beforeEach, vi, type Mock } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, vi, type Mock } from "vitest";
 import { WorkflowOrchestrator, type WorkflowOrchestratorDeps } from "../index.js";
 import type { PanicFix, PanicStatus } from "../../database.js";
+
+// Mock state handlers to control workflow progression
+vi.mock("../states/index.js", () => ({
+  handlePreflight: vi.fn(),
+  handleRepoSetup: vi.fn(),
+  handleReproducing: vi.fn(),
+  handleFixing: vi.fn(),
+  handleShipping: vi.fn(),
+}));
+
+import {
+  handlePreflight,
+  handleRepoSetup,
+  handleReproducing,
+  handleFixing,
+  handleShipping,
+} from "../states/index.js";
 
 // Mock factory functions
 function createMockConfig() {
@@ -253,6 +270,122 @@ describe("WorkflowOrchestrator", () => {
 
       // Should resolve quickly (no waiting)
       expect(elapsed).toBeLessThan(100);
+    });
+  });
+
+  describe("session cleanup on success", () => {
+    // Helper to setup state handlers to quickly reach pr_open
+    function setupHandlersForSuccess() {
+      (handlePreflight as Mock).mockResolvedValue({ nextStatus: "repo_setup" });
+      (handleRepoSetup as Mock).mockResolvedValue({ nextStatus: "reproducing" });
+      (handleReproducing as Mock).mockResolvedValue({ nextStatus: "fixing" });
+      (handleFixing as Mock).mockResolvedValue({ nextStatus: "shipping" });
+      (handleShipping as Mock).mockResolvedValue({
+        nextStatus: "pr_open",
+        prUrl: "https://github.com/test/repo/pull/1",
+      });
+    }
+
+    beforeEach(() => {
+      vi.useFakeTimers();
+    });
+
+    afterEach(() => {
+      vi.useRealTimers();
+    });
+
+    it("should delete session on success when dryRun is false", async () => {
+      setupHandlersForSuccess();
+      deps.config.dryRun = false;
+
+      const panic = createMockPanic({ panic_location: "src/test.c:100" });
+      let callCount = 0;
+      (deps.db.getPendingPanics as Mock).mockImplementation(async () => {
+        callCount++;
+        if (callCount === 1) {
+          return [panic];
+        }
+        return [];
+      });
+
+      const orchestrator = new WorkflowOrchestrator(deps);
+      const startPromise = orchestrator.start();
+
+      // Advance timers to let workflow process
+      await vi.advanceTimersByTimeAsync(100);
+
+      orchestrator.requestShutdown();
+
+      // Advance timers to let shutdown complete
+      await vi.advanceTimersByTimeAsync(2000);
+      await startPromise;
+
+      // Verify session was deleted
+      expect(deps.sandbox.deleteSession).toHaveBeenCalledWith("fix-panic-src-test.c-100");
+    });
+
+    it("should NOT delete session on success when dryRun is true", async () => {
+      setupHandlersForSuccess();
+      deps.config.dryRun = true;
+
+      const panic = createMockPanic({ panic_location: "src/test.c:100" });
+      let callCount = 0;
+      (deps.db.getPendingPanics as Mock).mockImplementation(async () => {
+        callCount++;
+        if (callCount === 1) {
+          return [panic];
+        }
+        return [];
+      });
+
+      const orchestrator = new WorkflowOrchestrator(deps);
+      const startPromise = orchestrator.start();
+
+      // Advance timers to let workflow process
+      await vi.advanceTimersByTimeAsync(100);
+
+      orchestrator.requestShutdown();
+
+      // Advance timers to let shutdown complete
+      await vi.advanceTimersByTimeAsync(2000);
+      await startPromise;
+
+      // Verify session was NOT deleted
+      expect(deps.sandbox.deleteSession).not.toHaveBeenCalled();
+    });
+
+    it("should log session retained message when dryRun is true", async () => {
+      setupHandlersForSuccess();
+      deps.config.dryRun = true;
+
+      const panic = createMockPanic({ panic_location: "src/test.c:100" });
+      let callCount = 0;
+      (deps.db.getPendingPanics as Mock).mockImplementation(async () => {
+        callCount++;
+        if (callCount === 1) {
+          return [panic];
+        }
+        return [];
+      });
+
+      const orchestrator = new WorkflowOrchestrator(deps);
+      const startPromise = orchestrator.start();
+
+      // Advance timers to let workflow process
+      await vi.advanceTimersByTimeAsync(100);
+
+      orchestrator.requestShutdown();
+
+      // Advance timers to let shutdown complete
+      await vi.advanceTimersByTimeAsync(2000);
+      await startPromise;
+
+      // Verify log message
+      expect(deps.logger.info).toHaveBeenCalledWith(
+        "src/test.c:100",
+        "orchestrator",
+        "Workflow complete (dry run). Session retained: fix-panic-src-test.c-100"
+      );
     });
   });
 });
