@@ -10,7 +10,8 @@ export type PanicStatus =
   | "fixing"
   | "shipping"
   | "pr_open"
-  | "needs_human_review";
+  | "needs_human_review"
+  | "skipped";
 
 export interface PanicFix {
   panic_location: string; // Primary key, e.g., "src/vdbe.c:1234"

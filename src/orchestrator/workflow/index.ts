@@ -19,6 +19,23 @@ import {
 export type { WorkflowContext, StateResult, StateHandler } from "./types.js";
 
 /**
+ * Check if a panic should be skipped based on its message.
+ * Skips panics for unimplemented/unsupported features.
+ * Uses specific negative patterns to avoid false positives.
+ */
+export function shouldSkipPanic(panicMessage: string): boolean {
+  const msg = panicMessage.toLowerCase();
+  return (
+    msg.includes("not supported") ||
+    msg.includes("unsupported") ||
+    msg.includes("not implemented") ||
+    msg.includes("unimplemented") ||
+    msg.includes("not yet supported") ||
+    msg.includes("not yet implemented")
+  );
+}
+
+/**
  * State handler registry.
  * Maps each status to its handler function.
  */
@@ -93,6 +110,19 @@ export class WorkflowOrchestrator {
       // Start processing each panic (non-blocking)
       for (const panic of panics) {
         if (this.shuttingDown) break;
+
+        // Skip panics for unimplemented/unsupported features
+        if (shouldSkipPanic(panic.panic_message)) {
+          await this.db.updatePanicStatus(panic.panic_location, "skipped");
+          await this.logger.info(
+            panic.panic_location,
+            "orchestrator",
+            "Skipped: panic indicates unimplemented/unsupported feature",
+            { panic_message: panic.panic_message }
+          );
+          continue;
+        }
+
         // Fire and forget - processPanic handles its own errors
         this.processPanic(panic);
       }

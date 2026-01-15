@@ -6,7 +6,7 @@
  */
 
 import { describe, it, expect, beforeEach, vi, type Mock } from "vitest";
-import { WorkflowOrchestrator, type WorkflowOrchestratorDeps } from "../index.js";
+import { WorkflowOrchestrator, type WorkflowOrchestratorDeps, shouldSkipPanic } from "../index.js";
 import type { PanicFix, PanicStatus } from "../../database.js";
 
 // Mock state handlers to control workflow progression
@@ -357,5 +357,55 @@ describe("WorkflowOrchestrator", () => {
         "Workflow complete (dry run). Session retained: fix-panic-src-test.c-100"
       );
     });
+  });
+
+});
+
+describe("shouldSkipPanic", () => {
+  it("should skip 'not supported' messages", () => {
+    expect(shouldSkipPanic("operation not supported")).toBe(true);
+    expect(shouldSkipPanic("NOT SUPPORTED: feature X")).toBe(true);
+    expect(shouldSkipPanic("This feature is not supported yet")).toBe(true);
+  });
+
+  it("should skip 'unsupported' messages", () => {
+    expect(shouldSkipPanic("unsupported operation")).toBe(true);
+    expect(shouldSkipPanic("UNSUPPORTED")).toBe(true);
+  });
+
+  it("should skip 'not implemented' messages", () => {
+    expect(shouldSkipPanic("not implemented")).toBe(true);
+    expect(shouldSkipPanic("feature not implemented yet")).toBe(true);
+    expect(shouldSkipPanic("NOT IMPLEMENTED")).toBe(true);
+  });
+
+  it("should skip 'unimplemented' messages", () => {
+    expect(shouldSkipPanic("unimplemented!")).toBe(true);
+    expect(shouldSkipPanic("UNIMPLEMENTED")).toBe(true);
+  });
+
+  it("should skip 'not yet supported' messages", () => {
+    expect(shouldSkipPanic("feature not yet supported")).toBe(true);
+  });
+
+  it("should skip 'not yet implemented' messages", () => {
+    expect(shouldSkipPanic("feature not yet implemented")).toBe(true);
+  });
+
+  it("should NOT skip legitimate panic messages", () => {
+    expect(shouldSkipPanic("assertion failed: cursor.is_valid()")).toBe(false);
+    expect(shouldSkipPanic("null pointer dereference")).toBe(false);
+    expect(shouldSkipPanic("index out of bounds")).toBe(false);
+    expect(shouldSkipPanic("division by zero")).toBe(false);
+  });
+
+  it("should NOT skip messages that happen to contain 'supported' without negation", () => {
+    expect(shouldSkipPanic("cursor not in a supported state")).toBe(false);
+    expect(shouldSkipPanic("this code path is supported but cursor was null")).toBe(false);
+  });
+
+  it("should NOT skip messages that happen to contain 'implemented' without negation", () => {
+    expect(shouldSkipPanic("feature X should be implemented by now")).toBe(false);
+    expect(shouldSkipPanic("implemented check failed")).toBe(false);
   });
 });
