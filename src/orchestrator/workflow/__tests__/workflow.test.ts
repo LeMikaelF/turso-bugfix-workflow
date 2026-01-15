@@ -5,7 +5,7 @@
  * Uses mocks for all dependencies since we're testing orchestration logic.
  */
 
-import { describe, it, expect, beforeEach, afterEach, vi, type Mock } from "vitest";
+import { describe, it, expect, beforeEach, vi, type Mock } from "vitest";
 import { WorkflowOrchestrator, type WorkflowOrchestratorDeps } from "../index.js";
 import type { PanicFix, PanicStatus } from "../../database.js";
 
@@ -286,39 +286,24 @@ describe("WorkflowOrchestrator", () => {
       });
     }
 
-    beforeEach(() => {
-      vi.useFakeTimers();
-    });
-
-    afterEach(() => {
-      vi.useRealTimers();
-    });
-
     it("should delete session on success when dryRun is false", async () => {
       setupHandlersForSuccess();
       deps.config.dryRun = false;
 
       const panic = createMockPanic({ panic_location: "src/test.c:100" });
+      const orchestrator = new WorkflowOrchestrator(deps);
       let callCount = 0;
       (deps.db.getPendingPanics as Mock).mockImplementation(async () => {
         callCount++;
         if (callCount === 1) {
           return [panic];
         }
+        // Trigger shutdown after returning the panic
+        orchestrator.requestShutdown();
         return [];
       });
 
-      const orchestrator = new WorkflowOrchestrator(deps);
-      const startPromise = orchestrator.start();
-
-      // Advance timers to let workflow process
-      await vi.advanceTimersByTimeAsync(100);
-
-      orchestrator.requestShutdown();
-
-      // Advance timers to let shutdown complete
-      await vi.advanceTimersByTimeAsync(2000);
-      await startPromise;
+      await orchestrator.start();
 
       // Verify session was deleted
       expect(deps.sandbox.deleteSession).toHaveBeenCalledWith("fix-panic-src-test.c-100");
@@ -329,26 +314,19 @@ describe("WorkflowOrchestrator", () => {
       deps.config.dryRun = true;
 
       const panic = createMockPanic({ panic_location: "src/test.c:100" });
+      const orchestrator = new WorkflowOrchestrator(deps);
       let callCount = 0;
       (deps.db.getPendingPanics as Mock).mockImplementation(async () => {
         callCount++;
         if (callCount === 1) {
           return [panic];
         }
+        // Trigger shutdown after returning the panic
+        orchestrator.requestShutdown();
         return [];
       });
 
-      const orchestrator = new WorkflowOrchestrator(deps);
-      const startPromise = orchestrator.start();
-
-      // Advance timers to let workflow process
-      await vi.advanceTimersByTimeAsync(100);
-
-      orchestrator.requestShutdown();
-
-      // Advance timers to let shutdown complete
-      await vi.advanceTimersByTimeAsync(2000);
-      await startPromise;
+      await orchestrator.start();
 
       // Verify session was NOT deleted
       expect(deps.sandbox.deleteSession).not.toHaveBeenCalled();
@@ -359,26 +337,19 @@ describe("WorkflowOrchestrator", () => {
       deps.config.dryRun = true;
 
       const panic = createMockPanic({ panic_location: "src/test.c:100" });
+      const orchestrator = new WorkflowOrchestrator(deps);
       let callCount = 0;
       (deps.db.getPendingPanics as Mock).mockImplementation(async () => {
         callCount++;
         if (callCount === 1) {
           return [panic];
         }
+        // Trigger shutdown after returning the panic
+        orchestrator.requestShutdown();
         return [];
       });
 
-      const orchestrator = new WorkflowOrchestrator(deps);
-      const startPromise = orchestrator.start();
-
-      // Advance timers to let workflow process
-      await vi.advanceTimersByTimeAsync(100);
-
-      orchestrator.requestShutdown();
-
-      // Advance timers to let shutdown complete
-      await vi.advanceTimersByTimeAsync(2000);
-      await startPromise;
+      await orchestrator.start();
 
       // Verify log message
       expect(deps.logger.info).toHaveBeenCalledWith(
