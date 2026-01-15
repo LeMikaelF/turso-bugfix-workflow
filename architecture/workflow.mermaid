@@ -18,34 +18,52 @@ flowchart TD
         RS5{"make test-single<br/>fails with<br/>expected panic?"}
     end
 
-    subgraph REPRODUCER["🔬 Reproducer Agent<br/><i>⏱️ 60min timeout (excludes sim runtime)</i>"]
-        R1["Load context from<br/>.md and .json files"]
-        R2["Analyze panic pattern<br/>& triggering conditions"]
-        R3["Extend simulator to<br/>generate statements"]
-        R4{"Simulator<br/>compiles?"}
-        R5["Run simulator"]
-        R6{"Panic<br/>reproduced?"}
-        R7["🔧 describe-sim-fix:<br/>• failing_seed<br/>• why simulator missed it<br/>• what was added<br/>(updates panic_context.json)"]
-        R8["📌 git commit (Orchestrator):<br/>'reproducer: {panic_id}'"]
-        RT{{"Timeout?"}}
+    subgraph REPRODUCER_PLANNER["📋 Reproducer Planner<br/><i>⏱️ 15min timeout</i>"]
+        RP1["Load context from<br/>.md and .json files"]
+        RP2["Analyze panic location<br/>in core/"]
+        RP3["Analyze SQL patterns"]
+        RP4["Study simulator in<br/>simulator/generation/"]
+        RP5["🔧 write-reproducer-plan:<br/>• analysis summary<br/>• root cause hypothesis<br/>• files to modify<br/>• generation strategy"]
+        RP6["Creates reproducer_plan.md"]
+        RPT{{"Timeout?"}}
     end
 
-    subgraph FIXER["🔧 Fixer Agent<br/><i>⏱️ 60min timeout</i>"]
-        F1["Load context from<br/>.md and .json files"]
-        F2["Analyze root cause"]
-        F3["Implement fix"]
-        F4{"Fix<br/>compiles?"}
-        F5["🔧 validate-fix:<br/>• TCL test passes<br/>• make test passes<br/>• sim 10 runs pass"]
-        F6{"Validation<br/>passed?"}
-        F7["🔧 describe-fix:<br/>• bug description<br/>• fix description<br/>(updates panic_context.json)"]
-        F8["📌 git commit (Orchestrator):<br/>• clippy --fix<br/>• cargo fmt<br/>'fix: {panic_id}'"]
-        FT{{"Timeout?"}}
+    subgraph REPRODUCER_IMPL["🔬 Reproducer Implementer<br/><i>⏱️ 45min timeout (excludes sim runtime)</i>"]
+        RI1["Read reproducer_plan.md"]
+        RI2["Implement changes from plan"]
+        RI3{"Simulator<br/>compiles?"}
+        RI4["Run simulator"]
+        RI5{"Panic<br/>reproduced?"}
+        RI6["🔧 describe-sim-fix:<br/>• failing_seed<br/>• why simulator missed it<br/>• what was added<br/>(updates panic_context.json)"]
+        RI7["📌 git commit (Orchestrator):<br/>'reproducer: {panic_id}'"]
+        RIT{{"Timeout?"}}
+    end
+
+    subgraph FIXER_PLANNER["📋 Fixer Planner<br/><i>⏱️ 15min timeout</i>"]
+        FP1["Load context from<br/>.md, .json, and reproducer_plan.md"]
+        FP2["Navigate to panic location"]
+        FP3["Trace root cause"]
+        FP4["Analyze SQL execution path"]
+        FP5["🔧 write-fixer-plan:<br/>• root cause analysis<br/>• code path trace<br/>• fix strategy<br/>• risk assessment"]
+        FP6["Creates fixer_plan.md"]
+        FPT{{"Timeout?"}}
+    end
+
+    subgraph FIXER_IMPL["🔧 Fixer Implementer<br/><i>⏱️ 45min timeout</i>"]
+        FI1["Read fixer_plan.md"]
+        FI2["Implement fix from plan"]
+        FI3{"Fix<br/>compiles?"}
+        FI4["🔧 validate-fix:<br/>• TCL test passes<br/>• make test passes<br/>• sim 10 runs pass"]
+        FI5{"Validation<br/>passed?"}
+        FI6["🔧 describe-fix:<br/>• bug description<br/>• fix description<br/>(updates panic_context.json)"]
+        FI7["📌 git commit (Orchestrator):<br/>• clippy --fix<br/>• cargo fmt<br/>'fix: {panic_id}'"]
+        FIT{{"Timeout?"}}
     end
 
     subgraph SHIP["🚀 Ship (Orchestrator)"]
         S1["Read panic_context.json"]
         S2{"All required<br/>fields present?"}
-        S3["Delete context files<br/>(.md and .json)"]
+        S3["Delete context files<br/>(.md, .json, *_plan.md)"]
         S4["Squash commits into single commit"]
         S5["open PR:<br/>• draft PR<br/>• tag reviewer"]
         S6["Update DB:<br/>status = 'pr_open'"]
@@ -66,25 +84,37 @@ flowchart TD
 %% Repo setup flow
     PF4 --> RS0 --> RS1 --> RS2 --> RS3 --> RS4 --> RS5
     RS5 -->|No| AB1
-    RS5 -->|Yes| R1
-%% Reproducer agent flow
-    R1 --> R2 --> R3 --> R4
-    R4 -->|No| RT
-    RT -->|No<br/>retry| R3
-    RT -->|Yes| AB1
-    R4 -->|Yes| R5 --> R6
-    R6 -->|No| RT
-    R6 -->|Yes| R7 --> R8
-%% Fixer agent flow
-    R8 --> F1 --> F2 --> F3 --> F4
-    F4 -->|No| FT
-    FT -->|No<br/>retry| F3
-    FT -->|Yes| AB1
-    F4 -->|Yes| F5 --> F6
-    F6 -->|No| F2
-    F6 -->|Yes| F7 --> F8
+    RS5 -->|Yes| RP1
+%% Reproducer Planner flow
+    RP1 --> RP2 --> RP3 --> RP4 --> RP5 --> RP6
+    RP2 --> RPT
+    RPT -->|Yes| AB1
+    RPT -->|No| RP3
+    RP6 --> RI1
+%% Reproducer Implementer flow
+    RI1 --> RI2 --> RI3
+    RI3 -->|No| RIT
+    RIT -->|No<br/>retry| RI2
+    RIT -->|Yes| AB1
+    RI3 -->|Yes| RI4 --> RI5
+    RI5 -->|No| RIT
+    RI5 -->|Yes| RI6 --> RI7
+%% Fixer Planner flow
+    RI7 --> FP1 --> FP2 --> FP3 --> FP4 --> FP5 --> FP6
+    FP2 --> FPT
+    FPT -->|Yes| AB1
+    FPT -->|No| FP3
+    FP6 --> FI1
+%% Fixer Implementer flow
+    FI1 --> FI2 --> FI3
+    FI3 -->|No| FIT
+    FIT -->|No<br/>retry| FI2
+    FIT -->|Yes| AB1
+    FI3 -->|Yes| FI4 --> FI5
+    FI5 -->|No| FI2
+    FI5 -->|Yes| FI6 --> FI7
 %% Ship flow (orchestrator)
-    F8 --> S1 --> S2
+    FI7 --> S1 --> S2
     S2 -->|No| AB1
     S2 -->|Yes| S3 --> S4 --> S5 --> S6 --> S7 --> S8
 %% Abort flow

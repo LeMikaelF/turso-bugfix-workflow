@@ -98,13 +98,15 @@ See [workflow file](./workflow.mermaid).
 
 ### Phase Summary
 
-| Phase      | Executor          | Timeout              | Description                              |
-|------------|-------------------|----------------------|------------------------------------------|
-| Pre-flight | Orchestrator      | None                 | Verify base repo builds and passes tests |
-| Repo Setup | Orchestrator      | None                 | Create sandbox, branch, TCL test         |
-| Reproducer | Claude Code Agent | 60min (excludes sim) | Extend simulator to reproduce panic      |
-| Fixer      | Claude Code Agent | 60min                | Fix bug, validate, document              |
-| Ship       | Orchestrator      | None                 | Squash, open PR, cleanup                 |
+| Phase                  | Executor          | Timeout              | Description                              |
+|------------------------|-------------------|----------------------|------------------------------------------|
+| Pre-flight             | Orchestrator      | None                 | Verify base repo builds and passes tests |
+| Repo Setup             | Orchestrator      | None                 | Create sandbox, branch, TCL test         |
+| Reproducer Planner     | Claude Code Agent | 15min                | Analyze panic, create reproducer_plan.md |
+| Reproducer Implementer | Claude Code Agent | 45min (excludes sim) | Follow plan, extend simulator            |
+| Fixer Planner          | Claude Code Agent | 15min                | Analyze root cause, create fixer_plan.md |
+| Fixer Implementer      | Claude Code Agent | 45min                | Follow plan, fix bug, validate           |
+| Ship                   | Orchestrator      | None                 | Squash, open PR, cleanup                 |
 
 ---
 
@@ -506,7 +508,102 @@ async function validateFix(params: ValidateFixParams): Promise<ValidateFixResult
 }
 ```
 
+#### Tool: `write-reproducer-plan`
+
+Creates `reproducer_plan.md` for the implementer agent.
+
+```typescript
+interface WriteReproducerPlanParams {
+    analysis_summary: string;        // Summary of panic analysis
+    root_cause_hypothesis: string;   // Hypothesis about what triggers the panic
+    sql_pattern_analysis: string;    // Analysis of triggering SQL patterns
+    files_to_modify: Array<{
+        path: string;
+        description: string;
+    }>;                              // Files to modify with descriptions
+    generation_strategy: string;     // Strategy for extending generation logic
+    verification_approach: string;   // How to verify changes work
+}
+
+interface WriteReproducerPlanResult {
+    success: boolean;
+    plan_file?: string;    // Path to created plan file
+    error?: string;        // Error message on failure
+}
+```
+
+#### Tool: `write-fixer-plan`
+
+Creates `fixer_plan.md` for the implementer agent.
+
+```typescript
+interface WriteFixerPlanParams {
+    root_cause_analysis: string;     // Detailed explanation of the bug
+    code_path_trace: string;         // Trace from SQL to panic location
+    fix_strategy: string;            // Strategy for fixing the bug
+    files_to_modify: Array<{
+        path: string;
+        description: string;
+    }>;                              // Files to modify with descriptions
+    validation_approach: string;     // How to validate the fix
+    risk_assessment: string;         // Potential regressions or edge cases
+}
+
+interface WriteFixerPlanResult {
+    success: boolean;
+    plan_file?: string;    // Path to created plan file
+    error?: string;        // Error message on failure
+}
+```
+
 ### Agent Prompts
+
+The system uses a planner/implementer split for each phase. Planner agents analyze and create plans (read-only), implementer agents follow plans and make changes.
+
+#### `prompts/reproducer-planner.md`
+
+```markdown
+# Reproducer Planner Agent
+
+You are a Reproducer Planner Agent. Your job is to analyze the panic and design a strategy for extending the simulator.
+
+**Important:** You are the PLANNER. Do NOT modify any files. The Implementer agent will follow your plan.
+
+## Workflow
+
+1. Analyze the panic location in `core/`
+2. Analyze the SQL patterns from `panic_context.md`
+3. Study the simulator in `simulator/generation/property.rs`
+4. Design your strategy
+5. Call `write-reproducer-plan` to create the plan
+
+## Tools Available
+
+- `write-reproducer-plan`: Create reproducer_plan.md for the implementer
+- `run-simulator` (optional): Test hypotheses, but don't try to reproduce the panic
+```
+
+#### `prompts/reproducer-implementer.md`
+
+```markdown
+# Reproducer Implementer Agent
+
+You are a Reproducer Implementer Agent. Follow the plan in `reproducer_plan.md` to extend the simulator.
+
+## Workflow
+
+1. Read `reproducer_plan.md` for the strategy
+2. Implement the changes described in the plan
+3. Run the simulator until the panic is reproduced
+4. Call `describe-sim-fix` to document your changes
+
+## Tools Available
+
+- `run-simulator`: Run the simulator with an optional seed
+- `describe-sim-fix`: Document your changes (updates `panic_context.json`)
+```
+
+#### `prompts/reproducer.md` (legacy)
 
 #### `prompts/reproducer.md`
 
@@ -546,7 +643,50 @@ Another agent (the Fixer) will use these files after you're done, so keep `panic
 - Do not commit - the orchestrator handles commits automatically
 ```
 
-#### `prompts/fixer.md`
+#### `prompts/fixer-planner.md`
+
+```markdown
+# Fixer Planner Agent
+
+You are a Fixer Planner Agent. Your job is to analyze the root cause of the panic and design a fix strategy.
+
+**Important:** You are the PLANNER. Do NOT modify any files. The Implementer agent will follow your plan.
+
+## Workflow
+
+1. Navigate to the panic location
+2. Trace the root cause
+3. Analyze the SQL execution path
+4. Design the fix
+5. Assess risks
+6. Call `write-fixer-plan` to create the plan
+
+## Tools Available
+
+- `write-fixer-plan`: Create fixer_plan.md for the implementer
+```
+
+#### `prompts/fixer-implementer.md`
+
+```markdown
+# Fixer Implementer Agent
+
+You are a Fixer Implementer Agent. Follow the plan in `fixer_plan.md` to fix the bug.
+
+## Workflow
+
+1. Read `fixer_plan.md` for the strategy
+2. Implement the fix as described
+3. Run `validate-fix` to verify
+4. Call `describe-fix` to document
+
+## Tools Available
+
+- `validate-fix`: Run tests and simulator
+- `describe-fix`: Document your fix (updates `panic_context.json`)
+```
+
+#### `prompts/fixer.md` (legacy)
 
 ```markdown
 # Fixer Agent
@@ -744,45 +884,56 @@ function checkTimeout(panicLocation: string, phase: 'reproducer' | 'fixer'): boo
 
 ## Configuration
 
+Configuration is loaded from `properties.json` in the project root:
+
 ```typescript
 // config.ts
 export interface Config {
-    // Database
+    // Database (required)
     tursoUrl: string;
     tursoAuthToken: string;
 
     // AgentFS
-    baseRepoPath: string;        // /opt/turso-base
+    baseRepoPath: string;        // Default: /opt/turso-base
 
     // Concurrency
     maxParallelPanics: number;   // Default: 2
 
-    // Timeouts (milliseconds)
-    reproducerTimeout: number;   // Default: 60 * 60 * 1000
-    fixerTimeout: number;        // Default: 60 * 60 * 1000
+    // Legacy phase timeouts (milliseconds)
+    reproducerTimeoutMs: number; // Default: 60min
+    fixerTimeoutMs: number;      // Default: 60min
 
-    // GitHub
+    // Planner/Implementer timeouts (milliseconds)
+    reproducerPlannerTimeoutMs: number;     // Default: 15min
+    reproducerImplementerTimeoutMs: number; // Default: 45min
+    fixerPlannerTimeoutMs: number;          // Default: 15min
+    fixerImplementerTimeoutMs: number;      // Default: 45min
+
+    // GitHub (required)
     githubToken: string;
-    githubRepo: string;          // tursodatabase/turso
-    prReviewer: string;          // Hard-coded reviewer username
+    githubRepo: string;          // Default: tursodatabase/turso
+    prReviewer: string;          // Default: @LeMikaelF
+    prLabels: string[];          // Default: []
 
     // IPC
     ipcPort: number;             // Default: 9100
-}
 
-export function loadConfig(): Config {
-    return {
-        tursoUrl: requireEnv('TURSO_URL'),
-        tursoAuthToken: requireEnv('TURSO_AUTH_TOKEN'),
-        baseRepoPath: process.env.BASE_REPO_PATH ?? '/opt/turso-base',
-        maxParallelPanics: parseInt(process.env.MAX_PARALLEL ?? '2'),
-        reproducerTimeout: parseInt(process.env.REPRODUCER_TIMEOUT ?? String(60 * 60 * 1000)),
-        fixerTimeout: parseInt(process.env.FIXER_TIMEOUT ?? String(60 * 60 * 1000)),
-        githubToken: requireEnv('GITHUB_TOKEN'),
-        githubRepo: process.env.GITHUB_REPO ?? 'tursodatabase/turso',
-        prReviewer: process.env.PR_REVIEWER ?? 'default-reviewer',
-        ipcPort: parseInt(process.env.IPC_PORT ?? '9100')
-    };
+    // Debug
+    dryRun: boolean;             // Default: false
+}
+```
+
+Example `properties.json`:
+
+```json
+{
+    "tursoUrl": "libsql://your-db.turso.io",
+    "tursoAuthToken": "your-token",
+    "githubToken": "ghp_xxx",
+    "reproducerPlannerTimeoutMs": 900000,
+    "reproducerImplementerTimeoutMs": 2700000,
+    "fixerPlannerTimeoutMs": 900000,
+    "fixerImplementerTimeoutMs": 2700000
 }
 ```
 
@@ -1014,34 +1165,55 @@ Simulator: ${prData.why_simulator_missed}"`);
 ## Directory Structure
 
 ```
-turso-panic-fixer/
-├── orchestrator/
-│   ├── src/
-│   │   ├── index.ts
-│   │   ├── workflow.ts
-│   │   ├── agents.ts
-│   │   ├── sandbox.ts
-│   │   ├── database.ts
-│   │   ├── ipc-server.ts
-│   │   ├── git.ts
-│   │   ├── pr.ts
-│   │   ├── context-parser.ts
-│   │   ├── logger.ts
-│   │   ├── config.ts
-│   │   └── encoding.ts              # toSlug(), toUrlSafe()
-│   ├── package.json
-│   └── tsconfig.json
-├── tools/
-│   ├── src/
-│   │   ├── server.ts
-│   │   ├── run-simulator.ts
-│   │   ├── describe-sim-fix.ts
-│   │   ├── describe-fix.ts
-│   │   └── validate-fix.ts
-│   ├── package.json
-│   └── tsconfig.json
+panic-fix-workflow/
+├── src/
+│   ├── orchestrator/              # Main workflow orchestration
+│   │   ├── index.ts               # CLI entry point
+│   │   ├── config.ts              # Configuration (properties.json)
+│   │   ├── database.ts            # Turso client wrapper
+│   │   ├── logger.ts              # Structured logging to DB
+│   │   ├── ipc-server.ts          # HTTP server for timeout tracking
+│   │   ├── sandbox.ts             # AgentFS session management
+│   │   ├── agents.ts              # Claude Code agent spawning (6 functions)
+│   │   ├── git.ts                 # Git operations
+│   │   ├── pr.ts                  # GitHub PR creation
+│   │   ├── encoding.ts            # toSlug(), toUrlSafe()
+│   │   ├── context-parser.ts      # Validate panic_context.json
+│   │   ├── context-json.ts        # Read/write panic_context.json
+│   │   ├── plan-files.ts          # Plan file utilities
+│   │   ├── workflow/
+│   │   │   ├── index.ts           # WorkflowOrchestrator class
+│   │   │   ├── types.ts           # Shared types
+│   │   │   ├── states/
+│   │   │   │   ├── index.ts       # State handler exports
+│   │   │   │   ├── preflight.ts   # Verify base repo builds
+│   │   │   │   ├── repo-setup.ts  # Create branch, context files
+│   │   │   │   ├── reproducing.ts # Run reproducer agents
+│   │   │   │   ├── fixing.ts      # Run fixer agents
+│   │   │   │   └── shipping.ts    # Squash, push, create PR
+│   │   │   └── templates/
+│   │   │       ├── tcl-test.ts    # TCL test generation
+│   │   │       └── context-file.ts
+│   │   └── __tests__/             # Tests
+│   └── tools/                     # MCP tools for agents
+│       ├── server.ts              # MCP server (6 tools)
+│       ├── run-simulator.ts       # Simulator execution
+│       ├── describe-sim-fix.ts    # Document simulator changes
+│       ├── describe-fix.ts        # Document bug fix
+│       ├── validate-fix.ts        # Run validation tests
+│       ├── write-reproducer-plan.ts # Create reproducer plan
+│       ├── write-fixer-plan.ts    # Create fixer plan
+│       └── __tests__/             # Tests
 ├── prompts/
-│   ├── reproducer.md
-│   └── fixer.md
+│   ├── reproducer.md              # Legacy reproducer prompt
+│   ├── reproducer-planner.md      # Reproducer planner prompt
+│   ├── reproducer-implementer.md  # Reproducer implementer prompt
+│   ├── fixer.md                   # Legacy fixer prompt
+│   ├── fixer-planner.md           # Fixer planner prompt
+│   └── fixer-implementer.md       # Fixer implementer prompt
+├── architecture/                  # Design documents
+├── package.json
+├── tsconfig.json
+├── properties.json                # Configuration
 └── README.md
 ```
