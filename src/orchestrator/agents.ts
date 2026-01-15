@@ -53,7 +53,7 @@ export interface AgentResult {
 const POLL_INTERVAL_MS = 1000;
 
 // Default MCP tools path
-const DEFAULT_MCP_TOOLS_PATH = "/opt/tools/server.ts";
+const DEFAULT_MCP_TOOLS_PATH = "/workspace/src/tools/server.ts";
 
 /**
  * Parse a stream-json line from Claude Code and extract useful info.

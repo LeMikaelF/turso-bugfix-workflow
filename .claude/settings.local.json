@@ -1,0 +1,35 @@
+{
+  "permissions": {
+    "allow": [
+      "WebFetch(domain:docs.turso.tech)",
+      "Bash(npx tsc)",
+      "Bash(npx tsx:*)",
+      "Bash(npm test:*)",
+      "Bash(npx tsc:*)",
+      "Bash(git show:*)",
+      "Bash(npm run typecheck:*)",
+      "Bash(npx vitest:*)",
+      "Bash(agentfs --help:*)",
+      "Bash(git add:*)",
+      "Bash(git commit:*)",
+      "Bash(npm run build:*)",
+      "mcp__ide__getDiagnostics",
+      "Bash(tree:*)",
+      "Bash(npm ls:*)",
+      "Bash(npm run test:*)",
+      "Bash(agentfs:*)",
+      "Bash(ls:*)",
+      "Bash(wc:*)",
+      "Bash(npm run:*)",
+      "Bash(git -C /Users/mfrancoeur/Programming/turso/panic-fix-workflow status)",
+      "Bash(git -C /Users/mfrancoeur/Programming/turso/panic-fix-workflow diff)",
+      "Bash(git -C /Users/mfrancoeur/Programming/turso/panic-fix-workflow log --oneline -5)",
+      "Bash(git -C /Users/mfrancoeur/Programming/turso/panic-fix-workflow add README.md)",
+      "Bash(git -C /Users/mfrancoeur/Programming/turso/panic-fix-workflow commit -m \"$\\(cat <<''EOF''\ndocs: add README with project overview and usage instructions\n\nCo-Authored-By: Claude Opus 4.5 <noreply@anthropic.com>\nEOF\n\\)\")",
+      "Bash(git -C /Users/mfrancoeur/Programming/turso/panic-fix-workflow add templates/pr-body.md)",
+      "Bash(git -C /Users/mfrancoeur/Programming/turso/panic-fix-workflow commit -m \"$\\(cat <<''EOF''\ndocs: add generated-by footer to PR template\n\nCo-Authored-By: Claude Opus 4.5 <noreply@anthropic.com>\nEOF\n\\)\")",
+      "Bash(ln:*)",
+      "Bash(sqlite3:*)"
+    ]
+  }
+}
