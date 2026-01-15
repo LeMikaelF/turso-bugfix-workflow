@@ -130,7 +130,6 @@ USER root
 RUN apt-get update && apt-get install -y --no-install-recommends \
   traceroute \
   iputils-ping \
-  sqlite3 \
   less \
   git \
   procps \
@@ -150,6 +149,21 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
   fuse3 \
   tcl \
   && apt-get clean && rm -rf /var/lib/apt/lists/*
+
+# Build and install sqlite3 from source (need >= 3.42.0 for Turso tests)
+ARG SQLITE_VERSION=3490100
+ARG SQLITE_YEAR=2025
+RUN set -eux; \
+    cd /tmp && \
+    curl -fsSL "https://sqlite.org/${SQLITE_YEAR}/sqlite-autoconf-${SQLITE_VERSION}.tar.gz" \
+      | tar -xz && \
+    cd "sqlite-autoconf-${SQLITE_VERSION}" && \
+    ./configure --prefix=/usr/local && \
+    make -j$(nproc) && \
+    make install && \
+    ldconfig && \
+    cd / && rm -rf /tmp/sqlite-autoconf-${SQLITE_VERSION} && \
+    sqlite3 --version
 
 # Switch back to node user
 USER node
