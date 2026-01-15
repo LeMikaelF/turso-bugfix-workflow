@@ -19,6 +19,12 @@ export interface Config {
   reproducerTimeoutMs: number;
   fixerTimeoutMs: number;
 
+  // Planner/Implementer split timeouts (milliseconds)
+  reproducerPlannerTimeoutMs: number;
+  reproducerImplementerTimeoutMs: number;
+  fixerPlannerTimeoutMs: number;
+  fixerImplementerTimeoutMs: number;
+
   // GitHub
   githubToken: string;
   githubRepo: string;
@@ -39,6 +45,10 @@ interface PropertiesFile {
   maxParallelPanics?: number;
   reproducerTimeoutMs?: number;
   fixerTimeoutMs?: number;
+  reproducerPlannerTimeoutMs?: number;
+  reproducerImplementerTimeoutMs?: number;
+  fixerPlannerTimeoutMs?: number;
+  fixerImplementerTimeoutMs?: number;
   githubToken?: string;
   githubRepo?: string;
   prReviewer?: string;
@@ -92,6 +102,10 @@ export function loadConfig(): Config {
     maxParallelPanics: props.maxParallelPanics ?? 2,
     reproducerTimeoutMs: props.reproducerTimeoutMs ?? 60 * 60 * 1000,
     fixerTimeoutMs: props.fixerTimeoutMs ?? 60 * 60 * 1000,
+    reproducerPlannerTimeoutMs: props.reproducerPlannerTimeoutMs ?? 15 * 60 * 1000,
+    reproducerImplementerTimeoutMs: props.reproducerImplementerTimeoutMs ?? 45 * 60 * 1000,
+    fixerPlannerTimeoutMs: props.fixerPlannerTimeoutMs ?? 15 * 60 * 1000,
+    fixerImplementerTimeoutMs: props.fixerImplementerTimeoutMs ?? 45 * 60 * 1000,
     githubToken: requireProperty("githubToken", props.githubToken),
     githubRepo: props.githubRepo ?? "tursodatabase/turso",
     prReviewer: props.prReviewer ?? "@LeMikaelF",
@@ -112,6 +126,10 @@ export function loadConfigWithDefaults(
     maxParallelPanics: 2,
     reproducerTimeoutMs: 60 * 60 * 1000,
     fixerTimeoutMs: 60 * 60 * 1000,
+    reproducerPlannerTimeoutMs: 15 * 60 * 1000,
+    reproducerImplementerTimeoutMs: 45 * 60 * 1000,
+    fixerPlannerTimeoutMs: 15 * 60 * 1000,
+    fixerImplementerTimeoutMs: 45 * 60 * 1000,
     githubToken: "test-token",
     githubRepo: "tursodatabase/turso",
     prReviewer: "@LeMikaelF",

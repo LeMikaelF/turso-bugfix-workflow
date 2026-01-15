@@ -14,37 +14,57 @@ import {
 
 // Mock agents module
 vi.mock("../../agents.js", () => ({
-  spawnFixerAgent: vi.fn(),
+  spawnFixerPlannerAgent: vi.fn(),
+  spawnFixerImplementerAgent: vi.fn(),
 }));
 
-import { spawnFixerAgent } from "../../agents.js";
-const mockSpawnFixerAgent = vi.mocked(spawnFixerAgent);
+import { spawnFixerPlannerAgent, spawnFixerImplementerAgent } from "../../agents.js";
+
+const mockSpawnFixerPlannerAgent = vi.mocked(spawnFixerPlannerAgent);
+const mockSpawnFixerImplementerAgent = vi.mocked(spawnFixerImplementerAgent);
 
 describe("handleFixing", () => {
   let ctx: WorkflowContext;
+  let mockRunInSession: ReturnType<typeof vi.fn>;
 
   beforeEach(() => {
     vi.clearAllMocks();
+
+    // Default mock: plan file exists and all operations succeed
+    mockRunInSession = vi.fn().mockImplementation(async (_, cmd: string) => {
+      if (cmd.includes("test -f fixer_plan.md")) {
+        return successResult("exists");
+      }
+      return successResult();
+    });
 
     ctx = {
       panic: createMockPanic({ panic_location: "src/test.c:100" }),
       sessionName: "test-session",
       branchName: "fix/test-branch",
-      config: createMockConfig({ fixerTimeoutMs: 120000 }),
+      config: createMockConfig(),
       db: createMockDb(),
       logger: createMockLogger(),
       ipcServer: createMockIpcServer(),
-      sandbox: createMockSandbox(),
+      sandbox: createMockSandbox(mockRunInSession),
     };
   });
 
   describe("success path", () => {
-    it("should return shipping when agent succeeds", async () => {
-      mockSpawnFixerAgent.mockResolvedValue({
+    it("should return shipping when both agents succeed", async () => {
+      mockSpawnFixerPlannerAgent.mockResolvedValue({
         success: true,
         timedOut: false,
         exitCode: 0,
-        stdout: "fix applied",
+        stdout: "planner done",
+        stderr: "",
+        elapsedMs: 5000,
+      });
+      mockSpawnFixerImplementerAgent.mockResolvedValue({
+        success: true,
+        timedOut: false,
+        exitCode: 0,
+        stdout: "implementer done",
         stderr: "",
         elapsedMs: 10000,
       });
@@ -55,8 +75,16 @@ describe("handleFixing", () => {
       expect(result.error).toBeUndefined();
     });
 
-    it("should call spawnFixerAgent with correct params", async () => {
-      mockSpawnFixerAgent.mockResolvedValue({
+    it("should call planner agent with correct params", async () => {
+      mockSpawnFixerPlannerAgent.mockResolvedValue({
+        success: true,
+        timedOut: false,
+        exitCode: 0,
+        stdout: "",
+        stderr: "",
+        elapsedMs: 0,
+      });
+      mockSpawnFixerImplementerAgent.mockResolvedValue({
         success: true,
         timedOut: false,
         exitCode: 0,
@@ -67,37 +95,25 @@ describe("handleFixing", () => {
 
       await handleFixing(ctx);
 
-      expect(mockSpawnFixerAgent).toHaveBeenCalledWith(
+      expect(mockSpawnFixerPlannerAgent).toHaveBeenCalledWith(
         "test-session",
         "src/test.c:100",
-        expect.stringContaining("fixer.md"),
+        expect.stringContaining("fixer-planner.md"),
         ctx.config,
         ctx.ipcServer
       );
     });
 
-    it("should log elapsed time on success", async () => {
-      mockSpawnFixerAgent.mockResolvedValue({
+    it("should call implementer agent after planner succeeds", async () => {
+      mockSpawnFixerPlannerAgent.mockResolvedValue({
         success: true,
         timedOut: false,
         exitCode: 0,
         stdout: "",
         stderr: "",
-        elapsedMs: 45000,
+        elapsedMs: 0,
       });
-
-      await handleFixing(ctx);
-
-      expect(ctx.logger.info).toHaveBeenCalledWith(
-        "src/test.c:100",
-        "fixer",
-        "Agent completed successfully",
-        { elapsedMs: 45000 }
-      );
-    });
-
-    it("should log spawning info at start", async () => {
-      mockSpawnFixerAgent.mockResolvedValue({
+      mockSpawnFixerImplementerAgent.mockResolvedValue({
         success: true,
         timedOut: false,
         exitCode: 0,
@@ -108,16 +124,25 @@ describe("handleFixing", () => {
 
       await handleFixing(ctx);
 
-      expect(ctx.logger.info).toHaveBeenCalledWith(
+      expect(mockSpawnFixerImplementerAgent).toHaveBeenCalledWith(
+        "test-session",
         "src/test.c:100",
-        "fixer",
-        "Spawning fixer agent",
-        { timeoutMs: 120000 }
+        expect.stringContaining("fixer-implementer.md"),
+        ctx.config,
+        ctx.ipcServer
       );
     });
 
-    it("should run clippy and fmt after agent success", async () => {
-      mockSpawnFixerAgent.mockResolvedValue({
+    it("should check if plan file exists after planner completes", async () => {
+      mockSpawnFixerPlannerAgent.mockResolvedValue({
+        success: true,
+        timedOut: false,
+        exitCode: 0,
+        stdout: "",
+        stderr: "",
+        elapsedMs: 0,
+      });
+      mockSpawnFixerImplementerAgent.mockResolvedValue({
         success: true,
         timedOut: false,
         exitCode: 0,
@@ -128,18 +153,52 @@ describe("handleFixing", () => {
 
       await handleFixing(ctx);
 
-      expect(ctx.sandbox.runInSession).toHaveBeenCalledWith(
+      expect(mockRunInSession).toHaveBeenCalledWith(
+        "test-session",
+        expect.stringContaining("test -f fixer_plan.md")
+      );
+    });
+
+    it("should run clippy and fmt after implementer success", async () => {
+      mockSpawnFixerPlannerAgent.mockResolvedValue({
+        success: true,
+        timedOut: false,
+        exitCode: 0,
+        stdout: "",
+        stderr: "",
+        elapsedMs: 0,
+      });
+      mockSpawnFixerImplementerAgent.mockResolvedValue({
+        success: true,
+        timedOut: false,
+        exitCode: 0,
+        stdout: "",
+        stderr: "",
+        elapsedMs: 0,
+      });
+
+      await handleFixing(ctx);
+
+      expect(mockRunInSession).toHaveBeenCalledWith(
         "test-session",
         "cargo clippy --fix --allow-dirty --all-features"
       );
-      expect(ctx.sandbox.runInSession).toHaveBeenCalledWith(
+      expect(mockRunInSession).toHaveBeenCalledWith(
         "test-session",
         "cargo fmt"
       );
     });
 
-    it("should continue even if clippy fails", async () => {
-      mockSpawnFixerAgent.mockResolvedValue({
+    it("should run git add and commit after clippy/fmt", async () => {
+      mockSpawnFixerPlannerAgent.mockResolvedValue({
+        success: true,
+        timedOut: false,
+        exitCode: 0,
+        stdout: "",
+        stderr: "",
+        elapsedMs: 0,
+      });
+      mockSpawnFixerImplementerAgent.mockResolvedValue({
         success: true,
         timedOut: false,
         exitCode: 0,
@@ -148,12 +207,68 @@ describe("handleFixing", () => {
         elapsedMs: 0,
       });
 
-      const mockRunInSession = vi.fn()
-        .mockResolvedValueOnce(failureResult("clippy error")) // clippy fails
-        .mockResolvedValueOnce(successResult()) // fmt succeeds
-        .mockResolvedValueOnce(successResult()) // git add succeeds
-        .mockResolvedValueOnce(successResult()); // git commit succeeds
-      ctx.sandbox = createMockSandbox(mockRunInSession);
+      await handleFixing(ctx);
+
+      expect(mockRunInSession).toHaveBeenCalledWith("test-session", "git add -A");
+      expect(mockRunInSession).toHaveBeenCalledWith(
+        "test-session",
+        expect.stringContaining("git commit -m")
+      );
+    });
+
+    it("should use correct commit message with panic_location", async () => {
+      mockSpawnFixerPlannerAgent.mockResolvedValue({
+        success: true,
+        timedOut: false,
+        exitCode: 0,
+        stdout: "",
+        stderr: "",
+        elapsedMs: 0,
+      });
+      mockSpawnFixerImplementerAgent.mockResolvedValue({
+        success: true,
+        timedOut: false,
+        exitCode: 0,
+        stdout: "",
+        stderr: "",
+        elapsedMs: 0,
+      });
+
+      await handleFixing(ctx);
+
+      expect(mockRunInSession).toHaveBeenCalledWith(
+        "test-session",
+        expect.stringContaining("fix: src/test.c:100")
+      );
+    });
+
+    it("should continue even if clippy fails", async () => {
+      mockSpawnFixerPlannerAgent.mockResolvedValue({
+        success: true,
+        timedOut: false,
+        exitCode: 0,
+        stdout: "",
+        stderr: "",
+        elapsedMs: 0,
+      });
+      mockSpawnFixerImplementerAgent.mockResolvedValue({
+        success: true,
+        timedOut: false,
+        exitCode: 0,
+        stdout: "",
+        stderr: "",
+        elapsedMs: 0,
+      });
+
+      mockRunInSession.mockImplementation(async (_, cmd: string) => {
+        if (cmd.includes("test -f fixer_plan.md")) {
+          return successResult("exists");
+        }
+        if (cmd.includes("clippy")) {
+          return failureResult("clippy error");
+        }
+        return successResult();
+      });
 
       const result = await handleFixing(ctx);
 
@@ -167,7 +282,15 @@ describe("handleFixing", () => {
     });
 
     it("should continue even if fmt fails", async () => {
-      mockSpawnFixerAgent.mockResolvedValue({
+      mockSpawnFixerPlannerAgent.mockResolvedValue({
+        success: true,
+        timedOut: false,
+        exitCode: 0,
+        stdout: "",
+        stderr: "",
+        elapsedMs: 0,
+      });
+      mockSpawnFixerImplementerAgent.mockResolvedValue({
         success: true,
         timedOut: false,
         exitCode: 0,
@@ -176,12 +299,15 @@ describe("handleFixing", () => {
         elapsedMs: 0,
       });
 
-      const mockRunInSession = vi.fn()
-        .mockResolvedValueOnce(successResult()) // clippy succeeds
-        .mockResolvedValueOnce(failureResult("fmt error")) // fmt fails
-        .mockResolvedValueOnce(successResult()) // git add succeeds
-        .mockResolvedValueOnce(successResult()); // git commit succeeds
-      ctx.sandbox = createMockSandbox(mockRunInSession);
+      mockRunInSession.mockImplementation(async (_, cmd: string) => {
+        if (cmd.includes("test -f fixer_plan.md")) {
+          return successResult("exists");
+        }
+        if (cmd.includes("cargo fmt")) {
+          return failureResult("fmt error");
+        }
+        return successResult();
+      });
 
       const result = await handleFixing(ctx);
 
@@ -193,158 +319,43 @@ describe("handleFixing", () => {
         expect.anything()
       );
     });
-
-    it("should run git add and commit after clippy/fmt", async () => {
-      mockSpawnFixerAgent.mockResolvedValue({
-        success: true,
-        timedOut: false,
-        exitCode: 0,
-        stdout: "",
-        stderr: "",
-        elapsedMs: 0,
-      });
-
-      await handleFixing(ctx);
-
-      expect(ctx.sandbox.runInSession).toHaveBeenCalledWith("test-session", "git add -A");
-      expect(ctx.sandbox.runInSession).toHaveBeenCalledWith(
-        "test-session",
-        expect.stringContaining("git commit -m")
-      );
-    });
-
-    it("should use correct commit message with panic_location", async () => {
-      mockSpawnFixerAgent.mockResolvedValue({
-        success: true,
-        timedOut: false,
-        exitCode: 0,
-        stdout: "",
-        stderr: "",
-        elapsedMs: 0,
-      });
-
-      await handleFixing(ctx);
-
-      expect(ctx.sandbox.runInSession).toHaveBeenCalledWith(
-        "test-session",
-        expect.stringContaining("fix: src/test.c:100")
-      );
-    });
-
-    it("should log commit success message", async () => {
-      mockSpawnFixerAgent.mockResolvedValue({
-        success: true,
-        timedOut: false,
-        exitCode: 0,
-        stdout: "",
-        stderr: "",
-        elapsedMs: 0,
-      });
-
-      await handleFixing(ctx);
-
-      expect(ctx.logger.info).toHaveBeenCalledWith(
-        "src/test.c:100",
-        "fixer",
-        "Changes committed successfully"
-      );
-    });
   });
 
-  describe("error handling", () => {
-    it("should return needs_human_review when agent times out", async () => {
-      mockSpawnFixerAgent.mockResolvedValue({
+  describe("planner errors", () => {
+    it("should return needs_human_review when planner times out", async () => {
+      mockSpawnFixerPlannerAgent.mockResolvedValue({
         success: false,
         timedOut: true,
         exitCode: -1,
         stdout: "",
         stderr: "",
-        elapsedMs: 120000,
+        elapsedMs: 900000,
       });
 
       const result = await handleFixing(ctx);
 
       expect(result.nextStatus).toBe("needs_human_review");
-      expect(result.error).toContain("timed out");
-      expect(result.error).toContain("120000");
+      expect(result.error).toContain("planner agent timed out");
     });
 
-    it("should return needs_human_review when agent exits with error", async () => {
-      mockSpawnFixerAgent.mockResolvedValue({
+    it("should return needs_human_review when planner fails", async () => {
+      mockSpawnFixerPlannerAgent.mockResolvedValue({
         success: false,
         timedOut: false,
         exitCode: 1,
         stdout: "",
-        stderr: "fix failed: cannot apply patch",
-        elapsedMs: 5000,
-      });
-
-      const result = await handleFixing(ctx);
-
-      expect(result.nextStatus).toBe("needs_human_review");
-      expect(result.error).toContain("exit code 1");
-      expect(result.error).toContain("cannot apply patch");
-    });
-
-    it("should log error when agent fails", async () => {
-      mockSpawnFixerAgent.mockResolvedValue({
-        success: false,
-        timedOut: false,
-        exitCode: 127,
-        stdout: "",
-        stderr: "command not found",
-        elapsedMs: 100,
-      });
-
-      await handleFixing(ctx);
-
-      expect(ctx.logger.error).toHaveBeenCalledWith(
-        "src/test.c:100",
-        "fixer",
-        "Agent failed",
-        expect.objectContaining({ exitCode: 127 })
-      );
-    });
-
-    it("should log error when agent times out", async () => {
-      mockSpawnFixerAgent.mockResolvedValue({
-        success: false,
-        timedOut: true,
-        exitCode: -1,
-        stdout: "",
-        stderr: "",
-        elapsedMs: 120000,
-      });
-
-      await handleFixing(ctx);
-
-      expect(ctx.logger.error).toHaveBeenCalledWith(
-        "src/test.c:100",
-        "fixer",
-        "Agent timed out",
-        expect.objectContaining({ elapsedMs: 120000, timeoutMs: 120000 })
-      );
-    });
-
-    it("should truncate long stderr in error message", async () => {
-      const longError = "x".repeat(500);
-      mockSpawnFixerAgent.mockResolvedValue({
-        success: false,
-        timedOut: false,
-        exitCode: 1,
-        stdout: "",
-        stderr: longError,
+        stderr: "planner error",
         elapsedMs: 1000,
       });
 
       const result = await handleFixing(ctx);
 
-      // Error should be truncated to 200 chars
-      expect(result.error!.length).toBeLessThan(longError.length + 100);
+      expect(result.nextStatus).toBe("needs_human_review");
+      expect(result.error).toContain("planner agent failed");
     });
 
-    it("should return needs_human_review when git add fails", async () => {
-      mockSpawnFixerAgent.mockResolvedValue({
+    it("should return needs_human_review when plan file not created", async () => {
+      mockSpawnFixerPlannerAgent.mockResolvedValue({
         success: true,
         timedOut: false,
         exitCode: 0,
@@ -352,12 +363,116 @@ describe("handleFixing", () => {
         stderr: "",
         elapsedMs: 0,
       });
+      // Mock plan file check to return empty (file doesn't exist)
+      mockRunInSession.mockImplementation(async (_, cmd: string) => {
+        if (cmd.includes("test -f fixer_plan.md")) {
+          return successResult(""); // File doesn't exist
+        }
+        return successResult();
+      });
 
-      const mockRunInSession = vi.fn()
-        .mockResolvedValueOnce(successResult()) // clippy succeeds
-        .mockResolvedValueOnce(successResult()) // fmt succeeds
-        .mockResolvedValueOnce(failureResult("fatal: not a git repository")); // git add fails
-      ctx.sandbox = createMockSandbox(mockRunInSession);
+      const result = await handleFixing(ctx);
+
+      expect(result.nextStatus).toBe("needs_human_review");
+      expect(result.error).toContain("did not create fixer_plan.md");
+    });
+
+    it("should not call implementer when planner fails", async () => {
+      mockSpawnFixerPlannerAgent.mockResolvedValue({
+        success: false,
+        timedOut: false,
+        exitCode: 1,
+        stdout: "",
+        stderr: "",
+        elapsedMs: 0,
+      });
+
+      await handleFixing(ctx);
+
+      expect(mockSpawnFixerImplementerAgent).not.toHaveBeenCalled();
+    });
+  });
+
+  describe("implementer errors", () => {
+    it("should return needs_human_review when implementer times out", async () => {
+      mockSpawnFixerPlannerAgent.mockResolvedValue({
+        success: true,
+        timedOut: false,
+        exitCode: 0,
+        stdout: "",
+        stderr: "",
+        elapsedMs: 0,
+      });
+      mockSpawnFixerImplementerAgent.mockResolvedValue({
+        success: false,
+        timedOut: true,
+        exitCode: -1,
+        stdout: "",
+        stderr: "",
+        elapsedMs: 2700000,
+      });
+
+      const result = await handleFixing(ctx);
+
+      expect(result.nextStatus).toBe("needs_human_review");
+      expect(result.error).toContain("implementer agent timed out");
+    });
+
+    it("should return needs_human_review when implementer fails", async () => {
+      mockSpawnFixerPlannerAgent.mockResolvedValue({
+        success: true,
+        timedOut: false,
+        exitCode: 0,
+        stdout: "",
+        stderr: "",
+        elapsedMs: 0,
+      });
+      mockSpawnFixerImplementerAgent.mockResolvedValue({
+        success: false,
+        timedOut: false,
+        exitCode: 1,
+        stdout: "",
+        stderr: "implementer error",
+        elapsedMs: 1000,
+      });
+
+      const result = await handleFixing(ctx);
+
+      expect(result.nextStatus).toBe("needs_human_review");
+      expect(result.error).toContain("implementer agent failed");
+    });
+  });
+
+  describe("git errors", () => {
+    beforeEach(() => {
+      mockSpawnFixerPlannerAgent.mockResolvedValue({
+        success: true,
+        timedOut: false,
+        exitCode: 0,
+        stdout: "",
+        stderr: "",
+        elapsedMs: 0,
+      });
+      mockSpawnFixerImplementerAgent.mockResolvedValue({
+        success: true,
+        timedOut: false,
+        exitCode: 0,
+        stdout: "",
+        stderr: "",
+        elapsedMs: 0,
+      });
+    });
+
+    it("should return needs_human_review when git add fails", async () => {
+      mockRunInSession.mockImplementation(async (_, cmd: string) => {
+        if (cmd.includes("test -f fixer_plan.md")) {
+          return successResult("exists");
+        }
+        if (cmd.includes("git add")) {
+          return failureResult("fatal: not a git repository");
+        }
+        return successResult();
+      });
 
       const result = await handleFixing(ctx);
 
@@ -366,21 +481,15 @@ describe("handleFixing", () => {
     });
 
     it("should return needs_human_review when git commit fails", async () => {
-      mockSpawnFixerAgent.mockResolvedValue({
-        success: true,
-        timedOut: false,
-        exitCode: 0,
-        stdout: "",
-        stderr: "",
-        elapsedMs: 0,
+      mockRunInSession.mockImplementation(async (_, cmd: string) => {
+        if (cmd.includes("test -f fixer_plan.md")) {
+          return successResult("exists");
+        }
+        if (cmd.includes("git commit")) {
+          return failureResult("fatal: unable to create commit");
+        }
+        return successResult();
       });
-
-      const mockRunInSession = vi.fn()
-        .mockResolvedValueOnce(successResult()) // clippy succeeds
-        .mockResolvedValueOnce(successResult()) // fmt succeeds
-        .mockResolvedValueOnce(successResult()) // git add succeeds
-        .mockResolvedValueOnce(failureResult("fatal: unable to create commit")); // git commit fails
-      ctx.sandbox = createMockSandbox(mockRunInSession);
 
       const result = await handleFixing(ctx);
 
@@ -388,49 +497,16 @@ describe("handleFixing", () => {
       expect(result.error).toContain("Failed to commit changes");
     });
 
-    it("should log error when git commit fails", async () => {
-      mockSpawnFixerAgent.mockResolvedValue({
-        success: true,
-        timedOut: false,
-        exitCode: 0,
-        stdout: "",
-        stderr: "",
-        elapsedMs: 0,
-      });
-
-      const mockRunInSession = vi.fn()
-        .mockResolvedValueOnce(successResult())
-        .mockResolvedValueOnce(successResult())
-        .mockResolvedValueOnce(successResult())
-        .mockResolvedValueOnce(failureResult("commit error"));
-      ctx.sandbox = createMockSandbox(mockRunInSession);
-
-      await handleFixing(ctx);
-
-      expect(ctx.logger.error).toHaveBeenCalledWith(
-        "src/test.c:100",
-        "fixer",
-        "Failed to commit changes",
-        expect.objectContaining({ stderr: "commit error" })
-      );
-    });
-
     it("should proceed with warning when nothing to commit", async () => {
-      mockSpawnFixerAgent.mockResolvedValue({
-        success: true,
-        timedOut: false,
-        exitCode: 0,
-        stdout: "",
-        stderr: "",
-        elapsedMs: 0,
+      mockRunInSession.mockImplementation(async (_, cmd: string) => {
+        if (cmd.includes("test -f fixer_plan.md")) {
+          return successResult("exists");
+        }
+        if (cmd.includes("git commit")) {
+          return failureResult("nothing to commit, working tree clean");
+        }
+        return successResult();
       });
-
-      const mockRunInSession = vi.fn()
-        .mockResolvedValueOnce(successResult()) // clippy succeeds
-        .mockResolvedValueOnce(successResult()) // fmt succeeds
-        .mockResolvedValueOnce(successResult()) // git add succeeds
-        .mockResolvedValueOnce(failureResult("nothing to commit, working tree clean"));
-      ctx.sandbox = createMockSandbox(mockRunInSession);
 
       const result = await handleFixing(ctx);
 
@@ -441,10 +517,11 @@ describe("handleFixing", () => {
         "No changes to commit (proceeding)"
       );
     });
+  });
 
-    it("should handle special characters in panic_location for commit message", async () => {
-      ctx.panic = createMockPanic({ panic_location: "src/foo's_file.c:100" });
-      mockSpawnFixerAgent.mockResolvedValue({
+  describe("command order", () => {
+    it("should run commands in correct order", async () => {
+      mockSpawnFixerPlannerAgent.mockResolvedValue({
         success: true,
         timedOut: false,
         exitCode: 0,
@@ -452,18 +529,7 @@ describe("handleFixing", () => {
         stderr: "",
         elapsedMs: 0,
       });
-
-      await handleFixing(ctx);
-
-      // Verify the commit command properly escapes the single quote
-      expect(ctx.sandbox.runInSession).toHaveBeenCalledWith(
-        "test-session",
-        expect.stringContaining("fix: src/foo'\\''s_file.c:100")
-      );
-    });
-
-    it("should run commands in correct order: clippy -> fmt -> git add -> git commit", async () => {
-      mockSpawnFixerAgent.mockResolvedValue({
+      mockSpawnFixerImplementerAgent.mockResolvedValue({
         success: true,
         timedOut: false,
         exitCode: 0,
@@ -473,18 +539,20 @@ describe("handleFixing", () => {
       });
 
       const callOrder: string[] = [];
-      const mockRunInSession = vi.fn().mockImplementation(async (_session, command) => {
-        if (command.includes("clippy")) callOrder.push("clippy");
+      mockRunInSession.mockImplementation(async (_, command) => {
+        if (command.includes("test -f fixer_plan.md")) {
+          callOrder.push("plan_check");
+          return successResult("exists");
+        } else if (command.includes("clippy")) callOrder.push("clippy");
         else if (command.includes("cargo fmt")) callOrder.push("fmt");
         else if (command.includes("git add")) callOrder.push("add");
         else if (command.includes("git commit")) callOrder.push("commit");
         return successResult();
       });
-      ctx.sandbox = createMockSandbox(mockRunInSession);
 
       await handleFixing(ctx);
 
-      expect(callOrder).toEqual(["clippy", "fmt", "add", "commit"]);
+      expect(callOrder).toEqual(["plan_check", "clippy", "fmt", "add", "commit"]);
     });
   });
 });

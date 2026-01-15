@@ -1,86 +1,137 @@
-// Reproducing state handler - spawns the reproducer agent
+// Reproducing state handler - spawns planner then implementer agents
 
 import type { StateHandler, StateResult } from "../types.js";
-import { spawnReproducerAgent, setupMcpTools } from "../../agents.js";
+import {
+  spawnReproducerPlannerAgent,
+  spawnReproducerImplementerAgent,
+  setupMcpTools,
+} from "../../agents.js";
+import { REPRODUCER_PLAN_FILE } from "../../plan-files.js";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
-// Default prompt path - can be overridden via config in the future
-const DEFAULT_REPRODUCER_PROMPT_PATH = join(__dirname, "../../../../prompts/reproducer.md");
+// Prompt paths
+const REPRODUCER_PLANNER_PROMPT_PATH = join(__dirname, "../../../../prompts/reproducer-planner.md");
+const REPRODUCER_IMPLEMENTER_PROMPT_PATH = join(__dirname, "../../../../prompts/reproducer-implementer.md");
 
 /**
- * Spawn the reproducer agent to extend the simulator.
- * The agent will:
- * 1. Analyze the panic and SQL statements
- * 2. Extend the simulator to generate similar statements
- * 3. Run the simulator until the panic is reproduced
- * 4. Record the failing seed
- * 5. Document simulator changes
- * 6. Update panic_context.md
- *
- * After the agent succeeds, the orchestrator commits the changes.
+ * Run the reproducer planner agent.
+ * Returns error result if planner fails or doesn't create plan file.
  */
-export const handleReproducing: StateHandler = async (ctx): Promise<StateResult> => {
+async function runReproducerPlanner(ctx: Parameters<StateHandler>[0]): Promise<StateResult | null> {
   const { logger, panic, sessionName, config, ipcServer, sandbox } = ctx;
   const panicLocation = panic.panic_location;
 
-  await logger.info(panicLocation, "reproducer", "Setting up MCP tools");
-
-  try {
-    await setupMcpTools(sessionName);
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    await logger.error(panicLocation, "reproducer", "Failed to setup MCP tools", {
-      error: message,
-    });
-    return {
-      nextStatus: "needs_human_review",
-      error: `Failed to setup MCP tools: ${message}`,
-    };
-  }
-
-  await logger.info(panicLocation, "reproducer", "Spawning reproducer agent", {
-    timeoutMs: config.reproducerTimeoutMs,
+  await logger.info(panicLocation, "reproducer-planner", "Spawning reproducer planner agent", {
+    timeoutMs: config.reproducerPlannerTimeoutMs,
   });
 
-  const result = await spawnReproducerAgent(
+  const result = await spawnReproducerPlannerAgent(
     sessionName,
     panicLocation,
-    DEFAULT_REPRODUCER_PROMPT_PATH,
+    REPRODUCER_PLANNER_PROMPT_PATH,
     config,
     ipcServer
   );
 
   if (result.timedOut) {
-    await logger.error(panicLocation, "reproducer", "Agent timed out", {
+    await logger.error(panicLocation, "reproducer-planner", "Agent timed out", {
       elapsedMs: result.elapsedMs,
-      timeoutMs: config.reproducerTimeoutMs,
+      timeoutMs: config.reproducerPlannerTimeoutMs,
     });
     return {
       nextStatus: "needs_human_review",
-      error: `Reproducer agent timed out after ${result.elapsedMs}ms (limit: ${config.reproducerTimeoutMs}ms)`,
+      error: `Reproducer planner agent timed out after ${result.elapsedMs}ms (limit: ${config.reproducerPlannerTimeoutMs}ms)`,
     };
   }
 
   if (!result.success) {
-    await logger.error(panicLocation, "reproducer", "Agent failed", {
+    await logger.error(panicLocation, "reproducer-planner", "Agent failed", {
       exitCode: result.exitCode,
       stderr: result.stderr.slice(0, 500),
     });
     return {
       nextStatus: "needs_human_review",
-      error: `Reproducer agent failed with exit code ${result.exitCode}: ${result.stderr.slice(0, 200)}`,
+      error: `Reproducer planner agent failed with exit code ${result.exitCode}: ${result.stderr.slice(0, 200)}`,
     };
   }
 
-  await logger.info(panicLocation, "reproducer", "Agent completed successfully", {
+  await logger.info(panicLocation, "reproducer-planner", "Agent completed successfully", {
     elapsedMs: result.elapsedMs,
   });
 
-  // Commit changes made by the reproducer agent
+  // Verify plan file was created (check inside sandbox filesystem)
+  const planCheckResult = await sandbox.runInSession(
+    sessionName,
+    `test -f ${REPRODUCER_PLAN_FILE} && echo exists`
+  );
+  const planExists = planCheckResult.stdout.trim() === "exists";
+  if (!planExists) {
+    await logger.error(panicLocation, "reproducer-planner", "Plan file not created", {
+      expectedFile: REPRODUCER_PLAN_FILE,
+    });
+    return {
+      nextStatus: "needs_human_review",
+      error: `Reproducer planner agent did not create ${REPRODUCER_PLAN_FILE}`,
+    };
+  }
+
+  await logger.info(panicLocation, "reproducer-planner", "Plan file created successfully");
+
+  // Planner succeeded, continue to implementer
+  return null;
+}
+
+/**
+ * Run the reproducer implementer agent.
+ * Returns error result if implementer fails.
+ */
+async function runReproducerImplementer(ctx: Parameters<StateHandler>[0]): Promise<StateResult> {
+  const { logger, panic, sessionName, config, ipcServer, sandbox } = ctx;
+  const panicLocation = panic.panic_location;
+
+  await logger.info(panicLocation, "reproducer-implementer", "Spawning reproducer implementer agent", {
+    timeoutMs: config.reproducerImplementerTimeoutMs,
+  });
+
+  const result = await spawnReproducerImplementerAgent(
+    sessionName,
+    panicLocation,
+    REPRODUCER_IMPLEMENTER_PROMPT_PATH,
+    config,
+    ipcServer
+  );
+
+  if (result.timedOut) {
+    await logger.error(panicLocation, "reproducer-implementer", "Agent timed out", {
+      elapsedMs: result.elapsedMs,
+      timeoutMs: config.reproducerImplementerTimeoutMs,
+    });
+    return {
+      nextStatus: "needs_human_review",
+      error: `Reproducer implementer agent timed out after ${result.elapsedMs}ms (limit: ${config.reproducerImplementerTimeoutMs}ms)`,
+    };
+  }
+
+  if (!result.success) {
+    await logger.error(panicLocation, "reproducer-implementer", "Agent failed", {
+      exitCode: result.exitCode,
+      stderr: result.stderr.slice(0, 500),
+    });
+    return {
+      nextStatus: "needs_human_review",
+      error: `Reproducer implementer agent failed with exit code ${result.exitCode}: ${result.stderr.slice(0, 200)}`,
+    };
+  }
+
+  await logger.info(panicLocation, "reproducer-implementer", "Agent completed successfully", {
+    elapsedMs: result.elapsedMs,
+  });
+
+  // Commit changes made by the reproducer agents
   await logger.info(panicLocation, "reproducer", "Committing reproducer changes");
 
   const addResult = await sandbox.runInSession(sessionName, "git add -A");
@@ -118,4 +169,45 @@ export const handleReproducing: StateHandler = async (ctx): Promise<StateResult>
   }
 
   return { nextStatus: "fixing" };
+}
+
+/**
+ * Handle the reproducing state by running planner then implementer agents.
+ *
+ * Workflow:
+ * 1. Setup MCP tools
+ * 2. Run planner agent (creates reproducer_plan.md)
+ * 3. Verify plan file was created
+ * 4. Run implementer agent (follows plan, reproduces panic)
+ * 5. Commit changes
+ * 6. Transition to fixing state
+ */
+export const handleReproducing: StateHandler = async (ctx): Promise<StateResult> => {
+  const { logger, panic, sessionName } = ctx;
+  const panicLocation = panic.panic_location;
+
+  await logger.info(panicLocation, "reproducer", "Setting up MCP tools");
+
+  try {
+    await setupMcpTools(sessionName);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    await logger.error(panicLocation, "reproducer", "Failed to setup MCP tools", {
+      error: message,
+    });
+    return {
+      nextStatus: "needs_human_review",
+      error: `Failed to setup MCP tools: ${message}`,
+    };
+  }
+
+  // Run planner agent
+  const plannerResult = await runReproducerPlanner(ctx);
+  if (plannerResult !== null) {
+    return plannerResult;
+  }
+
+  // Run implementer agent
+  const implementerResult = await runReproducerImplementer(ctx);
+  return implementerResult;
 };

@@ -8,7 +8,11 @@ export type Phase =
   | "preflight"
   | "repo_setup"
   | "reproducer"
+  | "reproducer-planner"
+  | "reproducer-implementer"
   | "fixer"
+  | "fixer-planner"
+  | "fixer-implementer"
   | "ship"
   | "orchestrator";
 

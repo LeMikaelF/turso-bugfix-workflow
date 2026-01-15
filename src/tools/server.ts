@@ -8,6 +8,8 @@ import { runSimulator, type RunSimulatorResult } from "./run-simulator.js";
 import { describeSimFix, type DescribeSimFixResult } from "./describe-sim-fix.js";
 import { describeFix, type DescribeFixResult } from "./describe-fix.js";
 import { validateFix, type ValidateFixResult } from "./validate-fix.js";
+import { writeReproducerPlan, type WriteReproducerPlanResult } from "./write-reproducer-plan.js";
+import { writeFixerPlan, type WriteFixerPlanResult } from "./write-fixer-plan.js";
 
 // Tool schemas using Zod
 const runSimulatorSchema = {
@@ -28,6 +30,29 @@ const describeFixSchema = {
 
 const validateFixSchema = {
   failing_seed: z.number().int().min(0).max(2147483647).describe("The seed that originally triggered the panic (must be a non-negative 32-bit integer)"),
+};
+
+const fileToModifySchema = z.object({
+  path: z.string().describe("Path to the file to modify"),
+  description: z.string().describe("Description of what changes to make"),
+});
+
+const writeReproducerPlanSchema = {
+  analysis_summary: z.string().describe("Summary of the panic analysis and what triggers it"),
+  root_cause_hypothesis: z.string().describe("Hypothesis about what code path/condition leads to the panic"),
+  sql_pattern_analysis: z.string().describe("Analysis of SQL patterns from panic_context.md that are relevant"),
+  files_to_modify: z.array(fileToModifySchema).describe("List of files to modify with descriptions"),
+  generation_strategy: z.string().describe("Strategy for extending the simulator generation logic"),
+  verification_approach: z.string().describe("How to verify the changes work (seed range to try, expected behavior)"),
+};
+
+const writeFixerPlanSchema = {
+  root_cause_analysis: z.string().describe("Detailed explanation of the bug root cause"),
+  code_path_trace: z.string().describe("Trace from SQL to panic location - what functions are involved"),
+  fix_strategy: z.string().describe("Strategy for fixing the bug"),
+  files_to_modify: z.array(fileToModifySchema).describe("List of files to modify with descriptions"),
+  validation_approach: z.string().describe("How to validate the fix (what tests to run)"),
+  risk_assessment: z.string().describe("Potential regressions or edge cases to watch for"),
 };
 
 /**
@@ -114,6 +139,58 @@ export function createMcpServer(): McpServer {
     async (params): Promise<{ content: Array<{ type: "text"; text: string }> }> => {
       const result: ValidateFixResult = await validateFix({
         failing_seed: params.failing_seed,
+      });
+
+      return {
+        content: [
+          {
+            type: "text",
+            text: JSON.stringify(result, null, 2),
+          },
+        ],
+      };
+    }
+  );
+
+  // Register write-reproducer-plan tool
+  server.tool(
+    "write-reproducer-plan",
+    "Write a reproducer plan file documenting analysis and strategy for extending the simulator. Call this after analyzing the panic to create reproducer_plan.md.",
+    writeReproducerPlanSchema,
+    async (params): Promise<{ content: Array<{ type: "text"; text: string }> }> => {
+      const result: WriteReproducerPlanResult = await writeReproducerPlan({
+        analysis_summary: params.analysis_summary,
+        root_cause_hypothesis: params.root_cause_hypothesis,
+        sql_pattern_analysis: params.sql_pattern_analysis,
+        files_to_modify: params.files_to_modify,
+        generation_strategy: params.generation_strategy,
+        verification_approach: params.verification_approach,
+      });
+
+      return {
+        content: [
+          {
+            type: "text",
+            text: JSON.stringify(result, null, 2),
+          },
+        ],
+      };
+    }
+  );
+
+  // Register write-fixer-plan tool
+  server.tool(
+    "write-fixer-plan",
+    "Write a fixer plan file documenting root cause analysis and fix strategy. Call this after analyzing the panic to create fixer_plan.md.",
+    writeFixerPlanSchema,
+    async (params): Promise<{ content: Array<{ type: "text"; text: string }> }> => {
+      const result: WriteFixerPlanResult = await writeFixerPlan({
+        root_cause_analysis: params.root_cause_analysis,
+        code_path_trace: params.code_path_trace,
+        fix_strategy: params.fix_strategy,
+        files_to_modify: params.files_to_modify,
+        validation_approach: params.validation_approach,
+        risk_assessment: params.risk_assessment,
       });
 
       return {

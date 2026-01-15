@@ -222,3 +222,139 @@ export async function spawnFixerAgent(
     ipcServer,
   });
 }
+
+/**
+ * Spawn a reproducer planner agent with the reproducer-planner prompt.
+ *
+ * @param sessionName - The AgentFS session name
+ * @param panicLocation - The panic location (e.g., "src/vdbe.c:1234")
+ * @param promptPath - Path to the reproducer-planner prompt file
+ * @param config - Configuration with timeout settings
+ * @param ipcServer - IPC server for timeout tracking
+ * @returns AgentResult
+ */
+export async function spawnReproducerPlannerAgent(
+  sessionName: string,
+  panicLocation: string,
+  promptPath: string,
+  config: Pick<Config, "reproducerPlannerTimeoutMs">,
+  ipcServer: IpcServer
+): Promise<AgentResult> {
+  let promptContent: string;
+  try {
+    promptContent = await readFile(promptPath, "utf-8");
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    throw new Error(`Failed to read reproducer-planner prompt at ${promptPath}: ${message}`);
+  }
+
+  return spawnAgent({
+    sessionName,
+    panicLocation,
+    promptContent,
+    timeoutMs: config.reproducerPlannerTimeoutMs,
+    ipcServer,
+  });
+}
+
+/**
+ * Spawn a reproducer implementer agent with the reproducer-implementer prompt.
+ *
+ * @param sessionName - The AgentFS session name
+ * @param panicLocation - The panic location (e.g., "src/vdbe.c:1234")
+ * @param promptPath - Path to the reproducer-implementer prompt file
+ * @param config - Configuration with timeout settings
+ * @param ipcServer - IPC server for timeout tracking
+ * @returns AgentResult
+ */
+export async function spawnReproducerImplementerAgent(
+  sessionName: string,
+  panicLocation: string,
+  promptPath: string,
+  config: Pick<Config, "reproducerImplementerTimeoutMs">,
+  ipcServer: IpcServer
+): Promise<AgentResult> {
+  let promptContent: string;
+  try {
+    promptContent = await readFile(promptPath, "utf-8");
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    throw new Error(`Failed to read reproducer-implementer prompt at ${promptPath}: ${message}`);
+  }
+
+  return spawnAgent({
+    sessionName,
+    panicLocation,
+    promptContent,
+    timeoutMs: config.reproducerImplementerTimeoutMs,
+    ipcServer,
+  });
+}
+
+/**
+ * Spawn a fixer planner agent with the fixer-planner prompt.
+ *
+ * @param sessionName - The AgentFS session name
+ * @param panicLocation - The panic location (e.g., "src/vdbe.c:1234")
+ * @param promptPath - Path to the fixer-planner prompt file
+ * @param config - Configuration with timeout settings
+ * @param ipcServer - IPC server for timeout tracking
+ * @returns AgentResult
+ */
+export async function spawnFixerPlannerAgent(
+  sessionName: string,
+  panicLocation: string,
+  promptPath: string,
+  config: Pick<Config, "fixerPlannerTimeoutMs">,
+  ipcServer: IpcServer
+): Promise<AgentResult> {
+  let promptContent: string;
+  try {
+    promptContent = await readFile(promptPath, "utf-8");
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    throw new Error(`Failed to read fixer-planner prompt at ${promptPath}: ${message}`);
+  }
+
+  return spawnAgent({
+    sessionName,
+    panicLocation,
+    promptContent,
+    timeoutMs: config.fixerPlannerTimeoutMs,
+    ipcServer,
+  });
+}
+
+/**
+ * Spawn a fixer implementer agent with the fixer-implementer prompt.
+ *
+ * @param sessionName - The AgentFS session name
+ * @param panicLocation - The panic location (e.g., "src/vdbe.c:1234")
+ * @param promptPath - Path to the fixer-implementer prompt file
+ * @param config - Configuration with timeout settings
+ * @param ipcServer - IPC server for timeout tracking
+ * @returns AgentResult
+ */
+export async function spawnFixerImplementerAgent(
+  sessionName: string,
+  panicLocation: string,
+  promptPath: string,
+  config: Pick<Config, "fixerImplementerTimeoutMs">,
+  ipcServer: IpcServer
+): Promise<AgentResult> {
+  let promptContent: string;
+  try {
+    promptContent = await readFile(promptPath, "utf-8");
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    throw new Error(`Failed to read fixer-implementer prompt at ${promptPath}: ${message}`);
+  }
+
+  return spawnAgent({
+    sessionName,
+    panicLocation,
+    promptContent,
+    timeoutMs: config.fixerImplementerTimeoutMs,
+    ipcServer,
+  });
+}

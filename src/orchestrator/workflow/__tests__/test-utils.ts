@@ -74,6 +74,10 @@ export function createMockConfig(overrides?: Partial<Config>): Config {
     maxParallelPanics: 2,
     reproducerTimeoutMs: 60 * 60 * 1000,
     fixerTimeoutMs: 60 * 60 * 1000,
+    reproducerPlannerTimeoutMs: 15 * 60 * 1000,
+    reproducerImplementerTimeoutMs: 45 * 60 * 1000,
+    fixerPlannerTimeoutMs: 15 * 60 * 1000,
+    fixerImplementerTimeoutMs: 45 * 60 * 1000,
     githubToken: "test-token",
     githubRepo: "test/repo",
     prReviewer: "@test",
@@ -111,11 +115,11 @@ export function failureResult(stderr: string, exitCode = 1): ExecResult {
 
 // Mock sandbox factory
 export function createMockSandbox(
-  runInSessionImpl?: ReturnType<typeof vi.fn<(sessionName: string, command: string) => Promise<ExecResult>>>
+  runInSessionImpl?: ReturnType<typeof vi.fn>
 ): SandboxManager {
-  const defaultImpl = vi.fn<(sessionName: string, command: string) => Promise<ExecResult>>().mockResolvedValue(successResult());
+  const defaultImpl = vi.fn().mockResolvedValue(successResult());
   return {
-    runInSession: runInSessionImpl ?? defaultImpl,
+    runInSession: (runInSessionImpl ?? defaultImpl) as SandboxManager["runInSession"],
     deleteSession: vi.fn().mockResolvedValue(undefined),
     sessionExists: vi.fn().mockResolvedValue(true),
   };
