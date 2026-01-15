@@ -43,7 +43,6 @@ Create a `properties.json` file in the project root:
 ```json
 {
   "tursoUrl": "libsql://your-database.turso.io",
-  "tursoAuthToken": "your-auth-token",
   "baseRepoPath": "/path/to/turso-repo",
   "maxParallelPanics": 2,
   "reproducerTimeoutMs": 3600000,
@@ -65,7 +64,6 @@ Create a `properties.json` file in the project root:
 | Field                 | Required | Default               | Description                         |
 |-----------------------|----------|-----------------------|-------------------------------------|
 | `tursoUrl`            | Yes      | -                     | Turso database URL                  |
-| `tursoAuthToken`      | Yes      | -                     | Turso authentication token          |
 | `baseRepoPath`        | No       | `/opt/turso-base`     | Path to base Turso repository       |
 | `maxParallelPanics`   | No       | `2`                   | Maximum concurrent panic processing |
 | `reproducerTimeoutMs` | No       | `3600000`             | Reproducer agent timeout (60 min)   |

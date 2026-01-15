@@ -33,6 +33,14 @@ coverage/
 .env.*
 !.env.example
 
+# Config (contains secrets)
+properties.ts
+properties.js
+properties.d.ts
+properties.d.ts.map
+properties.json
+!properties.example.ts
+
 # Cache
 .cache/
 .tmp/

@@ -891,7 +891,6 @@ Configuration is loaded from `properties.json` in the project root:
 export interface Config {
     // Database (required)
     tursoUrl: string;
-    tursoAuthToken: string;
 
     // AgentFS
     baseRepoPath: string;        // Default: /opt/turso-base
@@ -928,7 +927,6 @@ Example `properties.json`:
 ```json
 {
     "tursoUrl": "libsql://your-db.turso.io",
-    "tursoAuthToken": "your-token",
     "githubToken": "ghp_xxx",
     "reproducerPlannerTimeoutMs": 900000,
     "reproducerImplementerTimeoutMs": 2700000,

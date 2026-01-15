@@ -69,7 +69,6 @@ export function createMockIpcServer(): IpcServer {
 export function createMockConfig(overrides?: Partial<Config>): Config {
   return {
     tursoUrl: ":memory:",
-    tursoAuthToken: "",
     baseRepoPath: "/tmp",
     maxParallelPanics: 2,
     reproducerTimeoutMs: 60 * 60 * 1000,

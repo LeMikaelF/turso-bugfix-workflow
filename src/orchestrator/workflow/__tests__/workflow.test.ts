@@ -30,7 +30,6 @@ import {
 function createMockConfig() {
   return {
     tursoUrl: ":memory:",
-    tursoAuthToken: "",
     baseRepoPath: "/opt/turso-base",
     maxParallelPanics: 2,
     reproducerTimeoutMs: 60 * 60 * 1000,

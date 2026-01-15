@@ -183,7 +183,7 @@ risk_assessment: string
 src/
 ├── orchestrator/              # Main workflow orchestration
 │   ├── index.ts               # CLI entry point
-│   ├── config.ts              # Configuration loading (properties.json)
+│   ├── config.ts              # Configuration loading (properties.ts)
 │   ├── database.ts            # Turso client wrapper
 │   ├── logger.ts              # Structured logging to DB
 │   ├── ipc-server.ts          # HTTP server for timeout tracking
@@ -296,42 +296,40 @@ npm run format       # Format code with Prettier
 
 ## Configuration
 
-The project uses `properties.json` in the root:
+The project uses `properties.ts` in the root (not checked in - copy from `properties.example.ts`).
+
+**Setup:**
+1. Copy `properties.example.ts` to `properties.ts`
+2. Edit `properties.ts` with your values (or set environment variables)
+3. Run `npm run build` to compile (includes properties.ts)
+
+**Example:**
 
 ```typescript
-interface Config {
-  // Database (required)
-  tursoUrl: string;
-  tursoAuthToken: string;
+import type { Config } from "./src/orchestrator/config.js";
 
-  // AgentFS
-  baseRepoPath: string;        // Default: "/opt/turso-base"
+const config: Config = {
+  // Required - set via environment variables or replace placeholders
+  tursoUrl: process.env.TURSO_URL ?? "",
+  githubToken: process.env.GITHUB_TOKEN ?? "",
 
-  // Concurrency
-  maxParallelPanics: number;   // Default: 2
+  // Optional settings with defaults
+  baseRepoPath: "/opt/turso-base",
+  maxParallelPanics: 2,
+  reproducerTimeoutMs: 60 * 60 * 1000,            // 60 min
+  fixerTimeoutMs: 60 * 60 * 1000,                 // 60 min
+  reproducerPlannerTimeoutMs: 15 * 60 * 1000,     // 15 min
+  reproducerImplementerTimeoutMs: 45 * 60 * 1000, // 45 min
+  fixerPlannerTimeoutMs: 15 * 60 * 1000,          // 15 min
+  fixerImplementerTimeoutMs: 45 * 60 * 1000,      // 45 min
+  githubRepo: "tursodatabase/turso",
+  prReviewer: "@LeMikaelF",
+  prLabels: [],
+  ipcPort: 9100,
+  dryRun: false,
+};
 
-  // Phase timeouts (milliseconds)
-  reproducerTimeoutMs: number; // Default: 60min (legacy)
-  fixerTimeoutMs: number;      // Default: 60min (legacy)
-
-  // Planner/Implementer timeouts (milliseconds)
-  reproducerPlannerTimeoutMs: number;     // Default: 15min
-  reproducerImplementerTimeoutMs: number; // Default: 45min
-  fixerPlannerTimeoutMs: number;          // Default: 15min
-  fixerImplementerTimeoutMs: number;      // Default: 45min
-
-  // GitHub (required)
-  githubToken: string;
-  githubRepo: string;          // Default: "tursodatabase/turso"
-  prReviewer: string;          // Default: "@LeMikaelF"
-  prLabels: string[];          // Default: []
-
-  // IPC
-  ipcPort: number;             // Default: 9100
-
-  // Debug
-  dryRun: boolean;             // Default: false
-}
+export default config;
 ```
 
 ## Testing

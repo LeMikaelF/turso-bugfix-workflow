@@ -29,8 +29,8 @@ export interface OrchestratorDeps {
  * This function is exported for testing.
  */
 export async function initializeDependencies(): Promise<OrchestratorDeps> {
-  // 1. Load configuration (sync, no cleanup needed)
-  const config = loadConfig();
+  // 1. Load configuration (async, no cleanup needed)
+  const config = await loadConfig();
 
   // 2. Initialize database
   const db = await createDatabaseClient({ tursoUrl: config.tursoUrl });

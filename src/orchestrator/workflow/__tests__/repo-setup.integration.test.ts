@@ -77,7 +77,6 @@ function createMockIpcServer() {
 function createMockConfig() {
   return {
     tursoUrl: ":memory:",
-    tursoAuthToken: "",
     baseRepoPath: "/tmp",
     maxParallelPanics: 2,
     reproducerTimeoutMs: 60 * 60 * 1000,
