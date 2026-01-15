@@ -35,6 +35,7 @@ Automated system to reproduce, fix, and ship patches for panics in the Turso dat
 - **Claude Code CLI**
 - **Turso database** - for state persistence and logging
 - **GitHub repository** - the target repo where PRs will be created (must have push access)
+- **TCL** v8.6+ - required for running Turso compatibility tests
 
 ## Configuration
 

@@ -1,4 +1,5 @@
 // AgentFS session management - create, run commands, and delete sessions
+// In dry run mode, commands are executed directly without sandboxing
 
 import { exec } from "node:child_process";
 import { promisify } from "node:util";
@@ -8,6 +9,9 @@ import { join } from "node:path";
 import type { Config } from "./config.js";
 
 const execAsync = promisify(exec);
+
+// Maximum buffer size for exec output (50MB)
+const MAX_BUFFER = 50 * 1024 * 1024;
 
 export interface ExecResult {
   stdout: string;
@@ -40,7 +44,9 @@ export async function runInSession(
   const agentfsCommand = `agentfs run --session ${sessionName} ${command}`;
 
   try {
-    const execOptions: { timeout?: number; cwd?: string } = {};
+    const execOptions: { timeout?: number; cwd?: string; maxBuffer?: number } = {
+      maxBuffer: MAX_BUFFER,
+    };
     if (timeoutMs !== undefined) {
       execOptions.timeout = timeoutMs;
     }
@@ -49,6 +55,52 @@ export async function runInSession(
     }
 
     const { stdout, stderr } = await execAsync(agentfsCommand, execOptions);
+
+    return {
+      stdout,
+      stderr,
+      exitCode: 0,
+    };
+  } catch (error) {
+    // exec throws on non-zero exit code
+    if (isExecError(error)) {
+      return {
+        stdout: error.stdout ?? "",
+        stderr: error.stderr ?? "",
+        exitCode: error.code ?? 1,
+      };
+    }
+    throw error;
+  }
+}
+
+/**
+ * Run a command directly without sandboxing.
+ * Used in dry run mode when AgentFS is unavailable or unnecessary.
+ *
+ * @param command - The command to run
+ * @param options - Optional timeout and working directory
+ * @returns ExecResult with stdout, stderr, and exit code
+ */
+export async function runDirect(
+  command: string,
+  options: RunInSessionOptions = {}
+): Promise<ExecResult> {
+  const { timeoutMs, cwd } = options;
+
+  try {
+    const execOptions: { timeout?: number; cwd?: string; maxBuffer?: number; shell?: string } = {
+      maxBuffer: MAX_BUFFER,
+      shell: "/bin/bash",
+    };
+    if (timeoutMs !== undefined) {
+      execOptions.timeout = timeoutMs;
+    }
+    if (cwd !== undefined) {
+      execOptions.cwd = cwd;
+    }
+
+    const { stdout, stderr } = await execAsync(command, execOptions);
 
     return {
       stdout,
@@ -154,13 +206,29 @@ export interface SandboxManager {
 
 /**
  * Create a sandbox manager with configured defaults.
+ * In dry run mode, commands are executed directly without sandboxing.
  *
- * @param config - Configuration with baseRepoPath
+ * @param config - Configuration with baseRepoPath and optional dryRun flag
  * @returns SandboxManager instance
  */
 export function createSandboxManager(
-  config: Pick<Config, "baseRepoPath">
+  config: Pick<Config, "baseRepoPath" | "dryRun">
 ): SandboxManager {
+  if (config.dryRun) {
+    // In dry run mode, execute commands directly without AgentFS
+    return {
+      runInSession: (_sessionName, command, options = {}) =>
+        runDirect(command, {
+          cwd: config.baseRepoPath,
+          ...options,
+        }),
+      deleteSession: async () => {
+        // No-op in dry run mode
+      },
+      sessionExists: async () => false,
+    };
+  }
+
   return {
     runInSession: (sessionName, command, options = {}) =>
       runInSession(sessionName, command, {

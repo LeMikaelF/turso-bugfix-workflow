@@ -212,7 +212,7 @@ describe("sandbox", () => {
       (access as ReturnType<typeof vi.fn>).mockResolvedValue(undefined);
       (unlink as ReturnType<typeof vi.fn>).mockResolvedValue(undefined);
 
-      const manager = createSandboxManager({ baseRepoPath: "/opt/turso" });
+      const manager = createSandboxManager({ baseRepoPath: "/opt/turso", dryRun: false });
 
       // Test runInSession uses baseRepoPath as cwd
       await manager.runInSession("sess", "cmd");
@@ -234,7 +234,7 @@ describe("sandbox", () => {
     it("should allow overriding cwd in runInSession", async () => {
       mockExecSuccess("output", "");
 
-      const manager = createSandboxManager({ baseRepoPath: "/opt/turso" });
+      const manager = createSandboxManager({ baseRepoPath: "/opt/turso", dryRun: false });
       await manager.runInSession("sess", "cmd", { cwd: "/custom/path" });
 
       expect(exec).toHaveBeenCalledWith(
