@@ -23,16 +23,18 @@ Automated system to reproduce, fix, and ship patches for panics in the Turso dat
 | **Workflow State Machine** | Manages panic processing through 7 states with retry logic                  |
 | **Sandbox Manager**        | Creates and manages AgentFS copy-on-write sessions                          |
 | **IPC Server**             | HTTP server for tracking simulator runtime to exclude from timeouts         |
-| **MCP Server**             | Exposes 5 tools to Claude Code agents via Model Context Protocol            |
+| **MCP Server**             | Exposes 4 tools to Claude Code agents via Model Context Protocol            |
 | **Agents**                 | Claude Code instances running in sandboxes with MCP tools                   |
 
 ## Prerequisites
 
 - **Node.js** v18+
-- **AgentFS CLI** - for sandbox management
-- **Claude Code CLI** - for running agents
+- **Git**
+- **GitHub CLI** (`gh`) - authenticated via `gh auth login`
+- **AgentFS CLI**
+- **Claude Code CLI**
 - **Turso database** - for state persistence and logging
-- **GitHub CLI** (`gh`) - for PR creation
+- **GitHub repository** - the target repo where PRs will be created (must have push access)
 
 ## Configuration
 
@@ -77,25 +79,92 @@ Create a `properties.json` file in the project root:
 
 ## Usage
 
+### 1. Install Dependencies
+
 ```bash
-# Install dependencies
 npm install
-
-# Build TypeScript
 npm run build
+```
 
-# Run in development mode
+### 2. Initialize the Database
+
+The database schema is created automatically on first run. However, you need to **prime the database** with panic records for the workflow to process.
+
+#### Using the Turso CLI
+
+```bash
+# Install Turso CLI if needed
+brew install tursodatabase/tap/turso
+
+# Connect to your database
+turso db shell your-database-name
+
+# Insert a panic record
+INSERT INTO panic_fixes (panic_location, panic_message, sql_statements)
+VALUES (
+  'src/vdbe.c:1234',
+  'assertion failed: some_condition',
+  'CREATE TABLE t(x);
+INSERT INTO t VALUES(1);
+SELECT * FROM t;'
+);
+```
+
+#### Using the Turso Web Console
+
+1. Go to [turso.tech](https://turso.tech/) and open your database
+2. Navigate to the SQL console
+3. Run the INSERT statement above
+
+### 3. Set Up the Base Repository
+
+The workflow needs a base Turso repository to create sandboxes from:
+
+```bash
+# Clone the Turso repo to the configured baseRepoPath
+git clone https://github.com/tursodatabase/turso /opt/turso-base
+
+# Build it once to verify everything works
+cd /opt/turso-base
+make
+```
+
+### 4. Run the Workflow
+
+```bash
+# Development mode (with hot reload)
 npm run dev
 
-# Run in production
+# Production mode
+npm run build
 npm start
+```
 
+The orchestrator will:
+1. Poll the database for `pending` panic records
+2. Create sandboxes and spawn Claude Code agents
+3. Process panics through the state machine
+4. Create GitHub PRs for successful fixes
+
+### 5. Monitor Progress
+
+- Check the `panic_fixes` table for status updates
+- Check the `logs` table for detailed event logs
+- Use `Ctrl+C` once for graceful shutdown, twice to force exit
+
+### Other Commands
+
+```bash
 # Start MCP tools server (for agents)
 npm run mcp
 
 # Run tests
 npm test
 npm run test:watch
+
+# Lint and format
+npm run lint
+npm run format
 ```
 
 ## Workflow States
@@ -116,15 +185,14 @@ The system processes panics through a state machine with the following states:
 
 ## MCP Tools
 
-Agents have access to 5 tools via Model Context Protocol:
+Agents have access to 4 tools via Model Context Protocol:
 
-| Tool                | Description                                                 |
-|---------------------|-------------------------------------------------------------|
-| `run-simulator`     | Execute the simulator with a seed, returns panic status     |
-| `describe-sim-fix`  | Document changes made to extend the simulator               |
-| `describe-fix`      | Document the bug fix (root cause and solution)              |
-| `validate-fix-fast` | Run a single TCL test for quick validation                  |
-| `validate-fix-slow` | Run full test suite + simulator 10x for thorough validation |
+| Tool              | Description                                                                |
+|-------------------|----------------------------------------------------------------------------|
+| `run-simulator`   | Execute the simulator with a seed, returns panic status                    |
+| `describe-sim-fix`| Document changes made to extend the simulator                              |
+| `describe-fix`    | Document the bug fix (root cause and solution)                             |
+| `validate-fix`    | Run fast validation (single test) then slow validation (full suite + 10x simulator) |
 
 ## Project Structure
 
