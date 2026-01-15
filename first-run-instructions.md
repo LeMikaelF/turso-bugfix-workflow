@@ -4,12 +4,12 @@
 
 The panic has been inserted into `panics.db`:
 
-| Field | Value |
-|-------|-------|
-| panic_location | `core/translate/pragma.rs:331:39` |
-| panic_message | PRAGMA integrity_check with zero argument triggers unreachable panic - integrity_check pragma incorrectly treats numeric 0 as a value to set |
-| sql_statements | `PRAGMA integrity_check(0)` |
-| status | `pending` |
+| Field          | Value                                                                                                                                        |
+|----------------|----------------------------------------------------------------------------------------------------------------------------------------------|
+| panic_location | `core/translate/pragma.rs:331:39`                                                                                                            |
+| panic_message  | PRAGMA integrity_check with zero argument triggers unreachable panic - integrity_check pragma incorrectly treats numeric 0 as a value to set |
+| sql_statements | `PRAGMA integrity_check(0)`                                                                                                                  |
+| status         | `pending`                                                                                                                                    |
 
 ## Setup
 
@@ -54,6 +54,7 @@ pending → repo_setup → reproducing → fixing → shipping → pr_open
 ## Dry Run Mode
 
 To test without pushing/creating PRs, set in `properties.ts`:
+
 ```typescript
 dryRun: true,
 ```
@@ -61,6 +62,7 @@ dryRun: true,
 ## Monitoring
 
 Watch stdout for real-time logs, or query the database:
+
 ```bash
 sqlite3 panics.db "SELECT status, workflow_error FROM panic_fixes WHERE panic_location = 'core/translate/pragma.rs:331:39';"
 sqlite3 panics.db "SELECT payload FROM logs ORDER BY created_at DESC LIMIT 10;"
