@@ -26,7 +26,7 @@ flowchart TD
         R5["Run simulator"]
         R6{"Panic<br/>reproduced?"}
         R7["🔧 describe-sim-fix:<br/>• failing_seed<br/>• why simulator missed it<br/>• what was added<br/>(updates panic_context.json)"]
-        R8["📌 git commit (LLM):<br/>'reproducer: {panic_id}'"]
+        R8["📌 git commit (Orchestrator):<br/>'reproducer: {panic_id}'"]
         RT{{"Timeout?"}}
     end
 
@@ -35,11 +35,10 @@ flowchart TD
         F2["Analyze root cause"]
         F3["Implement fix"]
         F4{"Fix<br/>compiles?"}
-        F4B["📌 git commit (LLM):<br/>'wip: fix compiles'"]
         F5["🔧 validate-fix:<br/>• TCL test passes<br/>• make test passes<br/>• sim 10 runs pass"]
         F6{"Validation<br/>passed?"}
         F7["🔧 describe-fix:<br/>• bug description<br/>• fix description<br/>(updates panic_context.json)"]
-        F8["📌 git commit (LLM):<br/>'fix: {panic_id}'"]
+        F8["📌 git commit (Orchestrator):<br/>• clippy --fix<br/>• cargo fmt<br/>'fix: {panic_id}'"]
         FT{{"Timeout?"}}
     end
 
@@ -81,7 +80,7 @@ flowchart TD
     F4 -->|No| FT
     FT -->|No<br/>retry| F3
     FT -->|Yes| AB1
-    F4 -->|Yes| F4B --> F5 --> F6
+    F4 -->|Yes| F5 --> F6
     F6 -->|No| F2
     F6 -->|Yes| F7 --> F8
 %% Ship flow (orchestrator)

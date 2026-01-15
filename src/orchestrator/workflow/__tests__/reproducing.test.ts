@@ -8,6 +8,8 @@ import {
   createMockConfig,
   createMockPanic,
   createMockSandbox,
+  successResult,
+  failureResult,
 } from "./test-utils.js";
 
 // Mock agents module
@@ -111,6 +113,62 @@ describe("handleReproducing", () => {
         { elapsedMs: 12345 }
       );
     });
+
+    it("should run git add and commit after agent success", async () => {
+      mockSpawnReproducerAgent.mockResolvedValue({
+        success: true,
+        timedOut: false,
+        exitCode: 0,
+        stdout: "",
+        stderr: "",
+        elapsedMs: 0,
+      });
+
+      await handleReproducing(ctx);
+
+      expect(ctx.sandbox.runInSession).toHaveBeenCalledWith("test-session", "git add -A");
+      expect(ctx.sandbox.runInSession).toHaveBeenCalledWith(
+        "test-session",
+        expect.stringContaining("git commit -m")
+      );
+    });
+
+    it("should use correct commit message with panic_location", async () => {
+      mockSpawnReproducerAgent.mockResolvedValue({
+        success: true,
+        timedOut: false,
+        exitCode: 0,
+        stdout: "",
+        stderr: "",
+        elapsedMs: 0,
+      });
+
+      await handleReproducing(ctx);
+
+      expect(ctx.sandbox.runInSession).toHaveBeenCalledWith(
+        "test-session",
+        expect.stringContaining("reproducer: src/test.c:100")
+      );
+    });
+
+    it("should log commit success message", async () => {
+      mockSpawnReproducerAgent.mockResolvedValue({
+        success: true,
+        timedOut: false,
+        exitCode: 0,
+        stdout: "",
+        stderr: "",
+        elapsedMs: 0,
+      });
+
+      await handleReproducing(ctx);
+
+      expect(ctx.logger.info).toHaveBeenCalledWith(
+        "src/test.c:100",
+        "reproducer",
+        "Changes committed successfully"
+      );
+    });
   });
 
   describe("error handling", () => {
@@ -203,6 +261,117 @@ describe("handleReproducing", () => {
         "reproducer",
         "Agent timed out",
         expect.objectContaining({ elapsedMs: 60000, timeoutMs: 60000 })
+      );
+    });
+
+    it("should return needs_human_review when git add fails", async () => {
+      mockSpawnReproducerAgent.mockResolvedValue({
+        success: true,
+        timedOut: false,
+        exitCode: 0,
+        stdout: "",
+        stderr: "",
+        elapsedMs: 0,
+      });
+
+      const mockRunInSession = vi.fn()
+        .mockResolvedValueOnce(failureResult("fatal: not a git repository"));
+      ctx.sandbox = createMockSandbox(mockRunInSession);
+
+      const result = await handleReproducing(ctx);
+
+      expect(result.nextStatus).toBe("needs_human_review");
+      expect(result.error).toContain("Failed to stage changes");
+    });
+
+    it("should return needs_human_review when git commit fails", async () => {
+      mockSpawnReproducerAgent.mockResolvedValue({
+        success: true,
+        timedOut: false,
+        exitCode: 0,
+        stdout: "",
+        stderr: "",
+        elapsedMs: 0,
+      });
+
+      const mockRunInSession = vi.fn()
+        .mockResolvedValueOnce(successResult()) // git add succeeds
+        .mockResolvedValueOnce(failureResult("fatal: unable to create commit")); // git commit fails
+      ctx.sandbox = createMockSandbox(mockRunInSession);
+
+      const result = await handleReproducing(ctx);
+
+      expect(result.nextStatus).toBe("needs_human_review");
+      expect(result.error).toContain("Failed to commit changes");
+    });
+
+    it("should log error when git commit fails", async () => {
+      mockSpawnReproducerAgent.mockResolvedValue({
+        success: true,
+        timedOut: false,
+        exitCode: 0,
+        stdout: "",
+        stderr: "",
+        elapsedMs: 0,
+      });
+
+      const mockRunInSession = vi.fn()
+        .mockResolvedValueOnce(successResult())
+        .mockResolvedValueOnce(failureResult("commit error"));
+      ctx.sandbox = createMockSandbox(mockRunInSession);
+
+      await handleReproducing(ctx);
+
+      expect(ctx.logger.error).toHaveBeenCalledWith(
+        "src/test.c:100",
+        "reproducer",
+        "Failed to commit changes",
+        expect.objectContaining({ stderr: "commit error" })
+      );
+    });
+
+    it("should proceed with warning when nothing to commit", async () => {
+      mockSpawnReproducerAgent.mockResolvedValue({
+        success: true,
+        timedOut: false,
+        exitCode: 0,
+        stdout: "",
+        stderr: "",
+        elapsedMs: 0,
+      });
+
+      const mockRunInSession = vi.fn()
+        .mockResolvedValueOnce(successResult()) // git add succeeds
+        .mockResolvedValueOnce(failureResult("nothing to commit, working tree clean"));
+      ctx.sandbox = createMockSandbox(mockRunInSession);
+
+      const result = await handleReproducing(ctx);
+
+      expect(result.nextStatus).toBe("fixing");
+      expect(ctx.logger.warn).toHaveBeenCalledWith(
+        "src/test.c:100",
+        "reproducer",
+        "No changes to commit (proceeding)"
+      );
+    });
+
+    it("should handle special characters in panic_location for commit message", async () => {
+      ctx.panic = createMockPanic({ panic_location: "src/foo's_file.c:100" });
+      mockSpawnReproducerAgent.mockResolvedValue({
+        success: true,
+        timedOut: false,
+        exitCode: 0,
+        stdout: "",
+        stderr: "",
+        elapsedMs: 0,
+      });
+
+      await handleReproducing(ctx);
+
+      // Verify the commit command properly escapes the single quote
+      expect(ctx.sandbox.runInSession).toHaveBeenCalledWith(
+        "test-session",
+        expect.stringContaining("reproducer: src/foo'\\''s_file.c:100")
       );
     });
   });

@@ -54,9 +54,6 @@ so that some seed triggers the panic.
         - `what_was_added`: What generation logic did you add/modify?
     - This tool automatically updates `panic_context.json`
 
-5. **Commit your changes**
-    - Commit with message: `reproducer: {panic_location}`
-
 ## MCP Tools
 
 ### run-simulator
@@ -83,4 +80,4 @@ Document your simulator changes and update `panic_context.json`. Call this after
 - Only modify the `simulator` and `sql_generation` crates, never touch `turso_core`, `turso_parser`, etc.
 - **Keep iterating** - if `run-simulator` doesn't find the panic, modify generation and try again
 - The goal is a seed that reliably reproduces the panic
-- Use git directly for all version control operations
+- Do not commit - the orchestrator handles commits automatically

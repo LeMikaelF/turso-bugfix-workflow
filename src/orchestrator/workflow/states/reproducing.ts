@@ -20,10 +20,11 @@ const DEFAULT_REPRODUCER_PROMPT_PATH = join(__dirname, "../../../../prompts/repr
  * 4. Record the failing seed
  * 5. Document simulator changes
  * 6. Update panic_context.md
- * 7. Commit changes
+ *
+ * After the agent succeeds, the orchestrator commits the changes.
  */
 export const handleReproducing: StateHandler = async (ctx): Promise<StateResult> => {
-  const { logger, panic, sessionName, config, ipcServer } = ctx;
+  const { logger, panic, sessionName, config, ipcServer, sandbox } = ctx;
   const panicLocation = panic.panic_location;
 
   await logger.info(panicLocation, "reproducer", "Setting up MCP tools");
@@ -78,6 +79,43 @@ export const handleReproducing: StateHandler = async (ctx): Promise<StateResult>
   await logger.info(panicLocation, "reproducer", "Agent completed successfully", {
     elapsedMs: result.elapsedMs,
   });
+
+  // Commit changes made by the reproducer agent
+  await logger.info(panicLocation, "reproducer", "Committing reproducer changes");
+
+  const addResult = await sandbox.runInSession(sessionName, "git add -A");
+  if (addResult.exitCode !== 0) {
+    await logger.error(panicLocation, "reproducer", "Failed to stage changes", {
+      stderr: addResult.stderr,
+    });
+    return {
+      nextStatus: "needs_human_review",
+      error: `Failed to stage changes: ${addResult.stderr}`,
+    };
+  }
+
+  const commitMessage = `reproducer: ${panicLocation}`;
+  const commitResult = await sandbox.runInSession(
+    sessionName,
+    `git commit -m '${commitMessage.replace(/'/g, "'\\''")}'`
+  );
+  if (commitResult.exitCode !== 0) {
+    // Check if it's a "nothing to commit" situation - proceed anyway
+    const output = commitResult.stderr + commitResult.stdout;
+    if (output.includes("nothing to commit")) {
+      await logger.warn(panicLocation, "reproducer", "No changes to commit (proceeding)");
+    } else {
+      await logger.error(panicLocation, "reproducer", "Failed to commit changes", {
+        stderr: commitResult.stderr,
+      });
+      return {
+        nextStatus: "needs_human_review",
+        error: `Failed to commit changes: ${commitResult.stderr}`,
+      };
+    }
+  } else {
+    await logger.info(panicLocation, "reproducer", "Changes committed successfully");
+  }
 
   return { nextStatus: "fixing" };
 };

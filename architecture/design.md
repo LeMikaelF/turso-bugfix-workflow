@@ -86,7 +86,7 @@ All agents are Claude Code instances running in sandboxes, communicating through
 | Sandboxing         | AgentFS CoW filesystems                                    |
 | Tool protocol      | MCP servers (one per sandbox)                              |
 | Tool communication | Tools return structured data, agent writes to context file |
-| Git operations     | Agents use git directly                                    |
+| Git operations     | Orchestrator commits deterministically after each phase    |
 | IPC                | HTTP callbacks for timeout tracking                        |
 | Concurrency        | Configurable, default 2 parallel panics                    |
 
@@ -532,7 +532,6 @@ Another agent (the Fixer) will use these files after you're done, so keep `panic
 3. **Run the simulator** using the `run-simulator` tool until the panic is reproduced
 4. **Call `describe-sim-fix`** with the failing seed and documentation
    - This automatically updates `panic_context.json`
-5. **Commit your changes** with message: `reproducer: {panic_location}`
 
 ## Tools Available
 
@@ -541,10 +540,10 @@ Another agent (the Fixer) will use these files after you're done, so keep `panic
 
 ## Important
 
-- Use git directly for all git operations
 - The simulator is in `simulator/` directory
 - Keep iterating until the panic is reproduced
 - Do not modify the Turso database code, only the simulator
+- Do not commit - the orchestrator handles commits automatically
 ```
 
 #### `prompts/fixer.md`
@@ -566,13 +565,11 @@ Read the context files in the repository root:
 
 1. **Analyze** the root cause of the panic
 2. **Implement a fix** in the Turso codebase
-3. **Commit** when it compiles with message: `wip: fix compiles`
-4. **Validate** using `validate-fix` - runs TCL test, then full test suite and simulator
-5. **Call `describe-fix`** after validation passes to document:
+3. **Validate** using `validate-fix` - runs TCL test, then full test suite and simulator
+4. **Call `describe-fix`** after validation passes to document:
     - What the bug was
     - How you fixed it
     - This automatically updates `panic_context.json`
-6. **Commit your changes** with message: `fix: {panic_location}`
 
 ## Tools Available
 
@@ -581,10 +578,10 @@ Read the context files in the repository root:
 
 ## Important
 
-- Use git directly for all git operations
 - If validation fails, analyze the failure and iterate on your fix
 - Do not modify the simulator code, only the Turso database code
 - The TCL test was created during Repo Setup and should pass after your fix
+- Do not commit - the orchestrator handles commits automatically (including clippy/fmt)
 ```
 
 ---

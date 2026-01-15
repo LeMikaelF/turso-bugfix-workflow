@@ -43,23 +43,18 @@ Look at AGENTS.md in Turso for some important instructions on working with the c
     - Consider: Should this panic become a Result?
     - Consider: Can the type system prevent this state?
 
-3. **Commit when it compiles**
-    - Commit with message: `wip: fix compiles`
-
-4. **Validate your fix**
+3. **Validate your fix**
     - Call the `validate-fix` tool with the `failing_seed`
     - This runs: TCL test, then full test suite + simulator 10 times
     - If it fails, analyze the error and iterate on your fix
 
-5. **Document your fix**
+4. **Document your fix**
     - Call `describe-fix` with:
         - `bug_description`: What was the bug? (root cause)
         - `fix_description`: How did you fix it?
     - This tool automatically updates `panic_context.json`
 
-6. **Final commit**
-    - Run `cargo clippy --fix --allow-dirty --all-features && cargo fmt`
-    - Commit with message: `fix: {panic_location}`
+[//]: # (TODO if the panic is a todo!\(\) or a unimplemented\(\), then the correct fix is to return an error from the query, and to expect the error in the simulator. Or is it?)
 
 ## MCP Tools
 
@@ -93,4 +88,4 @@ If validation fails:
 
 - The Reproducer already extended the simulator - focus on the fix
 - Never touch `simulator/` or `sql_generation/`
-- Use git directly for all version control operations
+- Do not commit - the orchestrator handles commits automatically (including running clippy/fmt)
