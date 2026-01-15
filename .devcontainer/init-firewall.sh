@@ -71,6 +71,8 @@ for domain in \
     "proxy.golang.org" \
     "registry.npmjs.org" \
     "api.anthropic.com" \
+    "api.claude.ai" \
+    "platform.claude.com" \
     "sentry.io" \
     "statsig.anthropic.com" \
     "statsig.com" \
