@@ -36,6 +36,7 @@ coverage/
 # Config (contains secrets)
 properties.ts
 properties.js
+properties.js.map
 properties.d.ts
 properties.d.ts.map
 properties.json

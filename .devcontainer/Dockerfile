@@ -161,5 +161,13 @@ RUN sh -c "$(wget -O- https://github.com/deluan/zsh-in-docker/releases/download/
   -a "export PROMPT_COMMAND='history -a' && export HISTFILE=/commandhistory/.bash_history" \
   -x
 
+# Install Turso CLI
+RUN curl -sSfL https://get.tur.so/install.sh | bash
+ENV PATH=$PATH:/home/node/.turso/bin
+
+# Install AgentFS CLI
+RUN curl -fsSL https://agentfs.ai/install | bash
+ENV PATH=$PATH:/home/node/.agentfs/bin
+
 # Install Claude
 RUN npm install -g @anthropic-ai/claude-code@${CLAUDE_CODE_VERSION}
