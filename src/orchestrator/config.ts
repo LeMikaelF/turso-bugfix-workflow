@@ -34,10 +34,6 @@ export interface Config {
 
   // Dry run mode - don't actually create PRs
   dryRun: boolean;
-
-  // Use direct execution instead of AgentFS (for environments without FUSE)
-  // Warning: This modifies the actual repo, not copy-on-write sessions
-  useDirectExecution: boolean;
 }
 
 export async function loadConfig(): Promise<Config> {
@@ -109,7 +105,6 @@ export function loadConfigWithDefaults(
     prLabels: ["automated", "panic-fix"],
     ipcPort: 9100,
     dryRun: false,
-    useDirectExecution: false,
   };
 
   return { ...defaults, ...overrides };

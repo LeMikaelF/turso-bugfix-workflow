@@ -153,72 +153,14 @@ export interface SandboxManager {
 }
 
 /**
- * Run a command directly without AgentFS (for environments without FUSE).
- * Warning: This modifies the actual repo, not a copy-on-write session.
- */
-export async function runDirect(
-  command: string,
-  options: RunInSessionOptions = {}
-): Promise<ExecResult> {
-  const { timeoutMs, cwd } = options;
-
-  try {
-    const execOptions: { timeout?: number; cwd?: string; shell?: string } = {
-      shell: "/bin/bash",
-    };
-    if (timeoutMs !== undefined) {
-      execOptions.timeout = timeoutMs;
-    }
-    if (cwd !== undefined) {
-      execOptions.cwd = cwd;
-    }
-
-    const { stdout, stderr } = await execAsync(command, execOptions);
-
-    return {
-      stdout,
-      stderr,
-      exitCode: 0,
-    };
-  } catch (error) {
-    if (isExecError(error)) {
-      return {
-        stdout: error.stdout ?? "",
-        stderr: error.stderr ?? "",
-        exitCode: error.code ?? 1,
-      };
-    }
-    throw error;
-  }
-}
-
-/**
  * Create a sandbox manager with configured defaults.
  *
- * @param config - Configuration with baseRepoPath and optional useDirectExecution
+ * @param config - Configuration with baseRepoPath
  * @returns SandboxManager instance
  */
 export function createSandboxManager(
-  config: Pick<Config, "baseRepoPath"> & { useDirectExecution?: boolean }
+  config: Pick<Config, "baseRepoPath">
 ): SandboxManager {
-  const useDirectExecution = config.useDirectExecution ?? false;
-
-  if (useDirectExecution) {
-    // Direct execution mode - runs commands directly without AgentFS
-    // Warning: This modifies the actual repo, not a copy-on-write session
-    return {
-      runInSession: (_sessionName, command, options = {}) =>
-        runDirect(command, {
-          cwd: config.baseRepoPath,
-          ...options,
-        }),
-      deleteSession: async () => {
-        // No-op in direct mode - no sessions to delete
-      },
-      sessionExists: async () => false,
-    };
-  }
-
   return {
     runInSession: (sessionName, command, options = {}) =>
       runInSession(sessionName, command, {
